@@ -1,0 +1,3255 @@
+<!doctype html>
+<!--
+  ============================================================================
+  QR-EINK 墨水屏二维码设备 · 页面测试程序 (v1)
+  覆盖对接文档: 第 4 章 (BLE 通信接口) / 第 5 章 (命令协议全集) / 第 6 章 (加密方案)
+
+  使用方法 (Windows, Chrome 或 Edge):
+    1. 在本目录启动本地服务器:   python -m http.server 8000
+    2. 浏览器打开:               http://127.0.0.1:8000/QR-EINK_test.html
+       (不能 file:// 双击打开 — Web Bluetooth 需要安全上下文)
+    3. 设备上电或磁铁唤醒后 30 秒内点击「连接设备」→ 选择 QR-EINK
+
+  GATT: 服务 0xFFE0 / RX 0xFFE2(写) / TX 0xFFE1(通知, 回执单帧≤64B)
+  写操作需先 !AUTH 会话认证 (断开即失效, 本页写操作自动认证)
+  AES-128: 页面内联纯 JS 实现 (ECB/CBC), 加载时自检 FIPS-197 向量 (WebCrypto 不支持 ECB)
+  ============================================================================
+-->
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QR-EINK 墨水屏 · 页面测试程序</title>
+  <style>
+    :root {
+      --ok: #16a34a;
+      /* JS 引用 (svcState 就绪色) */
+      --err: #dc2626;
+      --accent: #2563eb;
+      --accent-d: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --bg: #eef1f6;
+      --panel: #fff;
+      --line: #e3e8f0;
+      --ink: #1f2937;
+      --ink2: #64748b;
+      --green: #16a34a;
+      --green-d: #15803d;
+      --amber: #b45309;
+      --amber-soft: #fff7ed;
+      --red: #dc2626;
+      --red-d: #b91c1c;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 14px rgba(15, 23, 42, 0.05);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 13.5px;
+    }
+
+    /* ---------- 顶栏 ---------- */
+    #hdr {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: linear-gradient(135deg, #0f172a 0%, #172554 100%);
+      color: #fff;
+      padding: 10px 18px;
+      position: sticky;
+      top: 0;
+      z-index: 9;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.25);
+    }
+
+    #hdr .logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, #38bdf8, #2563eb);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.25);
+    }
+
+    #hdr h1 {
+      font-size: 15px;
+      margin: 0;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    #hdr .hlabel {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    #hdr .sp {
+      flex: 1;
+    }
+
+    #hdr .cnt {
+      font-size: 12.5px;
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px;
+      padding: 3px 12px;
+    }
+
+    #hdr .cnt b {
+      font-size: 14px;
+    }
+
+    #hdr .cnt b.c-pass {
+      color: #4ade80;
+    }
+
+    #hdr .cnt b.c-fail {
+      color: #f87171;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 11px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.9;
+    }
+
+    .st-off {
+      background: #475569;
+      color: #fff;
+    }
+
+    .st-on {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .st-busy {
+      background: #d97706;
+      color: #fff;
+    }
+
+    .envwarn {
+      background: #fef2f2;
+      color: var(--red-d);
+      border-bottom: 1px solid #fecaca;
+      padding: 10px 18px;
+      font-weight: 600;
+    }
+
+    /* ---------- 网格与面板 ---------- */
+    main.grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 14px;
+      padding: 14px 16px 30px;
+      max-width: 1580px;
+      margin: 0 auto;
+    }
+
+    .s12 {
+      grid-column: span 12;
+    }
+
+    .s7 {
+      grid-column: span 7;
+    }
+
+    .s6 {
+      grid-column: span 6;
+    }
+
+    .s5 {
+      grid-column: span 5;
+    }
+
+    @media (max-width: 1180px) {
+
+      .s12,
+      .s7,
+      .s6,
+      .s5 {
+        grid-column: 1 / -1;
+      }
+    }
+
+    details {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 14px 13px;
+      box-shadow: var(--shadow);
+      transition: box-shadow 0.15s;
+    }
+
+    details:hover {
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08), 0 8px 22px rgba(15, 23, 42, 0.08);
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      list-style: none;
+      user-select: none;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    summary::before {
+      content: "▸";
+      font-size: 12px;
+      color: #94a3b8;
+      transition: transform 0.15s;
+    }
+
+    details[open]>summary::before {
+      transform: rotate(90deg);
+      color: var(--accent);
+    }
+
+    details[open]>summary {
+      margin-bottom: 8px;
+      padding-bottom: 9px;
+      border-bottom: 1px dashed var(--line);
+    }
+
+    .pnum {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid #bfdbfe;
+      font-size: 11.5px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .stag {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--ink2);
+      background: #f1f5f9;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 1px 9px;
+      white-space: nowrap;
+    }
+
+    /* ---------- 表单 ---------- */
+    fieldset {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin: 8px 0 2px;
+      padding: 7px 12px 10px;
+      background: #fbfcfe;
+    }
+
+    legend {
+      font-size: 12px;
+      color: var(--ink2);
+      padding: 0 8px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 0 16px;
+    }
+
+    .cmds {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin: 6px 0;
+    }
+
+    label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      color: var(--ink2);
+      white-space: nowrap;
+    }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 13px;
+      cursor: pointer;
+      font-size: 12.5px;
+      font-weight: 500;
+      font-family: inherit;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+      transition: background 0.15s, filter 0.15s, transform 0.05s;
+    }
+
+    button:hover:not(:disabled) {
+      filter: brightness(1.1);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    button:disabled {
+      background: #94a3b8;
+      box-shadow: none;
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    button.go {
+      background: var(--green);
+    }
+
+    button.go:hover:not(:disabled) {
+      background: var(--green-d);
+    }
+
+    button.warn {
+      background: var(--red);
+    }
+
+    button.warn:hover:not(:disabled) {
+      background: var(--red-d);
+    }
+
+    button.sec {
+      background: #fff;
+      color: #334155;
+      border: 1px solid var(--line);
+      box-shadow: none;
+    }
+
+    button.sec:hover:not(:disabled) {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
+    button.ghost {
+      background: transparent;
+      color: #cbd5e1;
+      border: 1px solid #475569;
+      box-shadow: none;
+    }
+
+    button.ghost:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    button.ghost:disabled {
+      background: transparent;
+      color: #475569;
+      border-color: #334155;
+    }
+
+    input,
+    select {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 5px 9px;
+      font-size: 12.5px;
+      font-family: inherit;
+      color: var(--ink);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
+    }
+
+    input[readonly] {
+      background: #f6f8fb;
+      color: #475569;
+    }
+
+    input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    input[type="file"] {
+      border: none;
+      padding: 0;
+      background: none;
+    }
+
+    input[type="file"]::file-selector-button {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font: inherit;
+      font-size: 12.5px;
+      color: #334155;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    input[type="file"]::file-selector-button:hover {
+      background: #f8fafc;
+    }
+
+    /* ---------- 提示与表格 ---------- */
+    .note {
+      font-size: 12px;
+      color: var(--ink2);
+      margin: 5px 0;
+      line-height: 1.55;
+    }
+
+    .warn-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: #92400e;
+      background: var(--amber-soft);
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12.5px;
+      line-height: 1.55;
+    }
+
+    .warn-note::before {
+      content: "⚠";
+    }
+
+    table.ref {
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 8px;
+      width: 100%;
+    }
+
+    table.ref th,
+    table.ref td {
+      border: 1px solid var(--line);
+      padding: 4px 9px;
+      text-align: left;
+    }
+
+    table.ref th {
+      background: #f8fafc;
+      color: var(--ink2);
+      font-weight: 600;
+      font-size: 11.5px;
+      letter-spacing: 0.3px;
+    }
+
+    table.ref tr:nth-child(even) td {
+      background: #fafbfd;
+    }
+
+    table.ref td:first-child {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11.5px;
+      color: #1d4ed8;
+    }
+
+    .inforow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin: 9px 0 4px;
+    }
+
+    .inforow>span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 5px 11px;
+      font-size: 12.5px;
+      color: var(--ink2);
+    }
+
+    .inforow b {
+      color: var(--ink);
+    }
+
+    /* ---------- 图片与加密面板 ---------- */
+    .imgrow {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+
+    .imgrow canvas {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      image-rendering: pixelated;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+    }
+
+    .imgrow .cap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink2);
+      margin-bottom: 6px;
+    }
+
+    .imgrow .cap::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .cryptobox {
+      flex: 1 1 360px;
+      background: #fbfcfe;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .cryptobox .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+      flex-wrap: wrap;
+    }
+
+    .cryptobox .row label {
+      width: 54px;
+      flex-shrink: 0;
+      justify-content: flex-end;
+    }
+
+    .cryptobox .row input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .cryptobox .note {
+      margin: 2px 0 8px;
+    }
+
+    progress {
+      width: 100%;
+      height: 8px;
+      border: none;
+      border-radius: 99px;
+      overflow: hidden;
+      background: #e2e8f0;
+      margin-top: 8px;
+    }
+
+    progress::-webkit-progress-bar {
+      background: #e2e8f0;
+    }
+
+    progress::-webkit-progress-value {
+      background: linear-gradient(90deg, #2563eb, #16a34a);
+      border-radius: 99px;
+      transition: width 0.15s;
+    }
+
+    /* ---------- 日志 ---------- */
+    .logbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    #logBox {
+      height: 320px;
+      overflow-y: auto;
+      background: #0b1220;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      color: #cbd5e1;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    #logBox::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    #logBox::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+
+    #logBox::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .lg {
+      margin: 1px 0;
+    }
+
+    .lg-tx {
+      color: #7cc0ff;
+    }
+
+    .lg-rx {
+      color: #86efac;
+    }
+
+    .lg-info {
+      color: #8fa3b8;
+    }
+
+    .lg-err {
+      color: #fca5a5;
+    }
+
+    .lg-warn {
+      color: #fcd34d;
+    }
+
+    .lg-pass {
+      color: #86efac;
+      background: rgba(34, 197, 94, 0.14);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+
+    .lg-fail {
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.16);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+
+    .lg-test {
+      color: #fde68a;
+      font-weight: 600;
+    }
+
+    /* ---------- 第二版视觉增强: 面板主题色 / 分组配色 / 深色模式 ---------- */
+    .pnl1 {
+      --pc: #2563eb;
+    }
+
+    .pnl2 {
+      --pc: #7c3aed;
+    }
+
+    .pnl3 {
+      --pc: #0d9488;
+    }
+
+    .pnl4 {
+      --pc: #ea580c;
+    }
+
+    .pnl5 {
+      --pc: #4f46e5;
+    }
+
+    .pnl6 {
+      --pc: #16a34a;
+    }
+
+    .pnl7 {
+      --pc: #64748b;
+    }
+
+    .pnl8 {
+      --pc: #0ea5e9;
+    }
+
+    details .pnum {
+      background: color-mix(in srgb, var(--pc, #2563eb) 14%, transparent);
+      color: var(--pc, #2563eb);
+      border-color: color-mix(in srgb, var(--pc, #2563eb) 35%, transparent);
+      transition: transform 0.15s;
+    }
+
+    summary:hover .pnum {
+      transform: scale(1.1);
+    }
+
+    details[open]>summary::before {
+      color: var(--pc, #2563eb);
+    }
+
+    .imgrow .cap::before {
+      background: var(--pc, var(--accent));
+    }
+
+    /* 命令面板分组配色 (左侧色条 + 图例圆点) */
+    .fields fieldset {
+      border-left-width: 3px;
+      border-left-color: var(--gc, #cbd5e1);
+    }
+
+    fieldset legend::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gc, var(--accent));
+      margin-right: 6px;
+    }
+
+    .g-time {
+      --gc: #2563eb;
+    }
+
+    .g-text {
+      --gc: #0d9488;
+    }
+
+    .g-disp {
+      --gc: #7c3aed;
+    }
+
+    .g-mode {
+      --gc: #4f46e5;
+    }
+
+    .g-alarm {
+      --gc: #d97706;
+    }
+
+    .g-led {
+      --gc: #16a34a;
+    }
+
+    .g-danger {
+      --gc: #dc2626;
+    }
+
+    .g-custom {
+      --gc: #64748b;
+    }
+
+    /* 模式 A/B 双列布局 */
+    .fields2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 18px;
+    }
+
+    @media (max-width: 1180px) {
+      .fields2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* 嵌套速查表 (默认收起) */
+    details.sub {
+      border: none;
+      box-shadow: none;
+      padding: 0;
+      margin-top: 6px;
+    }
+
+    details.sub:hover {
+      box-shadow: none;
+    }
+
+    details.sub>summary {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--ink2);
+      padding: 2px 0;
+    }
+
+    details.sub[open]>summary {
+      border-bottom: none;
+      margin-bottom: 4px;
+      padding-bottom: 2px;
+    }
+
+    /* 图片统计 chip / 快捷键提示 / 日志增强 */
+    #imgStats {
+      display: inline-block;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 11px;
+      font-size: 12px;
+      color: var(--ink2);
+      margin-top: 8px;
+    }
+
+    .kbd {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: #f8fafc;
+      padding: 1px 6px;
+      font-size: 11px;
+      font-family: Consolas, "Courier New", monospace;
+      color: var(--ink2);
+    }
+
+    #logBox {
+      resize: vertical;
+      min-height: 180px;
+    }
+
+    #logBox:empty::before {
+      content: "暂无日志 — 连接设备后 TX / RX 回执将显示在这里";
+      color: #475569;
+      font-style: italic;
+    }
+
+    table.ref tr:hover td {
+      background: #f0f6ff;
+    }
+
+    /* 键盘焦点可见 (可访问性) */
+    button:focus-visible,
+    summary:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        transition: none !important;
+        animation: none !important;
+      }
+    }
+
+    /* ---------- 深色模式 (跟随系统) ---------- */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f141b;
+        --panel: #161d29;
+        --line: #2a3444;
+        --ink: #e2e8f0;
+        --ink2: #94a3b8;
+        --accent-soft: #1e2a44;
+        --amber-soft: #2b2113;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+
+      input,
+      select {
+        background: #10161f;
+        color: #e2e8f0;
+      }
+
+      input[readonly] {
+        background: #0e141c;
+        color: #94a3b8;
+      }
+
+      fieldset,
+      .cryptobox {
+        background: #121923;
+      }
+
+      button.sec {
+        background: #1b2331;
+        color: #cbd5e1;
+      }
+
+      button.sec:hover:not(:disabled) {
+        background: #212b3d;
+        border-color: #3b4a63;
+      }
+
+      .stag {
+        background: #1b2331;
+      }
+
+      .inforow>span,
+      #imgStats {
+        background: #121923;
+      }
+
+      .warn-note {
+        background: #2b2113;
+        border-color: #7c5a10;
+        color: #fcd34d;
+      }
+
+      .envwarn {
+        background: #2b1414;
+        color: #fca5a5;
+        border-color: #5c1a1a;
+      }
+
+      table.ref th,
+      table.ref tr:nth-child(even) td {
+        background: #121923;
+      }
+
+      table.ref tr:hover td {
+        background: #1b2637;
+      }
+
+      progress,
+      progress::-webkit-progress-bar {
+        background: #1b2331;
+      }
+
+      input[type="file"]::file-selector-button {
+        background: #1b2331;
+        color: #cbd5e1;
+      }
+
+      input[type="file"]::file-selector-button:hover {
+        background: #212b3d;
+      }
+
+      .kbd {
+        background: #1b2331;
+        color: #cbd5e1;
+      }
+
+      #logBox {
+        border-color: #1e293b;
+      }
+    }
+
+    /* ---------- 第三版: 双列对齐布局 + 控件等高 ---------- */
+    main.grid {
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    }
+
+    /* 显式栅格定位: 左右两列逐行严格对齐, 同行单元格上下边沿一致
+         ┌─────① 连接 (整行) ─────┐
+         │ ② 密钥  │ ④ 图片(跨2行) │
+         │ ③ 命令  │               │
+         │ ⑥ 自动  │ ⑦ 自检        │
+         ├─────⑤ 加密 (整行) ─────┤
+         └─────⑧ 日志 (整行) ─────┘ */
+    #pnlConn {
+      grid-column: 1 / -1;
+      grid-row: 1;
+    }
+
+    #pnlKey {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    #pnlCmd {
+      grid-column: 1;
+      grid-row: 3;
+    }
+
+    #pnlAuto {
+      grid-column: 1;
+      grid-row: 4;
+    }
+
+    #pnlImg {
+      grid-column: 2;
+      grid-row: 2 / span 2;
+    }
+
+    #pnlSelftest {
+      grid-column: 2;
+      grid-row: 4;
+    }
+
+    #pnlCrypto {
+      grid-column: 1 / -1;
+      grid-row: 5;
+    }
+
+    #pnlLog {
+      grid-column: 1 / -1;
+      grid-row: 6;
+    }
+
+    /* 控件统一等高, 行列严格对齐 */
+    button {
+      height: 30px;
+    }
+
+    input,
+    select {
+      height: 30px;
+    }
+
+    input[type="checkbox"] {
+      height: 16px;
+      width: 16px;
+    }
+
+    .kbd {
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    /* 窄屏回落单列 */
+    @media (max-width: 1280px) {
+      main.grid {
+        grid-template-columns: 1fr;
+      }
+
+      #pnlConn,
+      #pnlKey,
+      #pnlCmd,
+      #pnlAuto,
+      #pnlImg,
+      #pnlSelftest,
+      #pnlCrypto,
+      #pnlLog {
+        grid-column: 1;
+        grid-row: auto;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header id="hdr">
+    <span class="logo">QR</span>
+    <h1>QR-EINK 墨水屏 · 页面测试程序</h1>
+    <span class="hlabel">状态</span>
+    <span id="connState" class="badge st-off">未连接</span>
+    <button id="btnConnect" class="go">连接设备</button>
+    <button id="btnDisconnect" class="ghost" disabled>断开</button>
+    <span class="cnt">
+      通过
+      <b id="statPass" class="c-pass">0</b>
+      · 失败
+      <b id="statFail" class="c-fail">0</b>
+    </span>
+    <span class="sp"></span>
+    <span class="cnt">§4 BLE 接口 · §5 命令协议 · §6 加密方案</span>
+  </header>
+
+  <div id="envWarn" class="envwarn" hidden></div>
+
+  <main class="grid">
+    <!-- ======================= 面板 1: 连接与设备信息 ======================= -->
+    <details id="pnlConn" class="s12 pnl1" open>
+      <summary><span class="pnum">①</span>连接与设备信息<span class="stag">第 4 章 BLE 通信接口</span></summary>
+      <div class="warn-note">
+        设备上电/磁铁唤醒后仅广播
+        <b>30 秒</b>
+        即深睡：请在唤醒后 30
+        秒内点击「连接设备」；若列表为空，请再次磁铁唤醒或断电重上电。
+      </div>
+      <div class="inforow">
+        <span>
+          设备名:
+          <b id="devName">—</b>
+        </span>
+        <span>
+          设备ID:
+          <b id="devId">—</b>
+        </span>
+        <span>
+          GATT:
+          <b id="svcState">—</b>
+        </span>
+        <span>
+          认证状态:
+          <span id="authState" class="badge st-off">未认证</span>
+          <span class="note">(断开自动失效)</span>
+        </span>
+      </div>
+      <details class="sub">
+        <summary>命令速查表（点击展开 / 收起）</summary>
+        <table class="ref">
+          <tr>
+            <th>命令</th>
+            <th>说明</th>
+            <th>回执</th>
+          </tr>
+          <tr>
+            <td>!SYNC YYMMDDHHMMSS</td>
+            <td>同步 RTC 时间</td>
+            <td>OK:SYNC / ERR:SYNC</td>
+          </tr>
+          <tr>
+            <td>!TIME / !ETIME</td>
+            <td>明文 / 加密时间二维码</td>
+            <td>OK:TIME / OK:ETIME</td>
+          </tr>
+          <tr>
+            <td>&lt;任意文本&gt;</td>
+            <td>显示文本二维码</td>
+            <td>OK</td>
+          </tr>
+          <tr>
+            <td>!TEXT &lt;文本&gt; / !TEXT</td>
+            <td>保存 / 清空业务文本(≤70)</td>
+            <td>OK:TEXT</td>
+          </tr>
+          <tr>
+            <td>!R / !CLR / !SLP</td>
+            <td>重显 / 清屏 / 休眠</td>
+            <td>OK:R(-TIME) / OK:CLR / OK:SLP</td>
+          </tr>
+          <tr>
+            <td>!ALARM mm|hhmm|OFF</td>
+            <td>单点报警设置</td>
+            <td>OK:ALARM / ERR:ALARM</td>
+          </tr>
+          <tr>
+            <td>!ALARMTEST / !ALARMSTAT</td>
+            <td>模拟报警 / 查询配置</td>
+            <td>OK:TEST / A=.. AH=.. ...</td>
+          </tr>
+          <tr>
+            <td>!PERIOD N(1-255)|0|OFF</td>
+            <td>周期刷新</td>
+            <td>OK:PERIOD / ERR:PERIOD</td>
+          </tr>
+          <tr>
+            <td>!AESKEY [&lt;32hex密文&gt;]</td>
+            <td>查询 / 加密更新密钥</td>
+            <td>OK:AESKEY &lt;32hex&gt;</td>
+          </tr>
+          <tr>
+            <td>!AUTH &lt;32hex密文&gt;</td>
+            <td>会话认证(写操作前置)</td>
+            <td>OK:AUTH / ERR:AUTH</td>
+          </tr>
+          <tr>
+            <td>!AUTHPASS &lt;32hex密文&gt;</td>
+            <td>更新认证密码(需先认证)</td>
+            <td>OK:AUTHPASS</td>
+          </tr>
+          <tr>
+            <td>!MODE [0|1]</td>
+            <td>查询 / 设置加密模式</td>
+            <td>OK:MODE 0/1</td>
+          </tr>
+          <tr>
+            <td>!IMG [1] / 0xAA帧 / !IMGEND</td>
+            <td>背景图下发(RLE/原始)</td>
+            <td>OK:IMG</td>
+          </tr>
+          <tr>
+            <td>!LED [0|1|N|查询]</td>
+            <td>LED 灭/亮/闪N(2-20)</td>
+            <td>LED:ON/OFF / OK:LED</td>
+          </tr>
+          <tr>
+            <td>!BATT / !MAC [地址]</td>
+            <td>电量 / MAC 查询/设置</td>
+            <td>BATT:..mV ..% / MAC:..</td>
+          </tr>
+          <tr>
+            <td>!RBT / !REBOOT</td>
+            <td>软件复位(看门狗)</td>
+            <td>OK:RBT (随后断连)</td>
+          </tr>
+        </table>
+      </details>
+    </details>
+
+    <!-- ======================= 面板 2: 密钥 / 密码与认证 ======================= -->
+    <details id="pnlKey" class="s6 pnl2" open>
+      <summary><span class="pnum">②</span>密钥 / 密码与认证<span class="stag">第 6 章</span></summary>
+      <fieldset>
+        <legend>本地参数（仅用于计算密文，不明文传输）</legend>
+        <div class="cmds">
+          <label>
+            AES 密钥 (32hex)
+            <input id="inKey" size="34" value="00112233445566778899AABBCCDDEEFF" spellcheck="false" />
+          </label>
+          <label>
+            认证密码 (32hex)
+            <input id="inPassword" size="34" value="00112233445566778899AABBCCDDEEFF" spellcheck="false" />
+          </label>
+        </div>
+        <div class="note">
+          出厂默认密钥/密码均为 00112233445566778899AABBCCDDEEFF。所有写操作前需 !AUTH
+          会话认证（断开即失效，本页自动执行）。
+        </div>
+      </fieldset>
+      <div class="cmds">
+        <button id="btnAesQuery">查询当前密钥 !AESKEY</button>
+        <button id="btnDoAuth" class="go">会话认证 !AUTH</button>
+        <label>
+          新密钥
+          <input id="inNewKey" size="34" spellcheck="false" placeholder="32hex 新密钥" />
+        </label>
+        <button id="btnAesUpdate">加密更新密钥 !AESKEY&lt;ct&gt;</button>
+      </div>
+      <div class="cmds">
+        <label>
+          新认证密码
+          <input id="inNewPass" size="34" spellcheck="false" placeholder="32hex 新密码" />
+        </label>
+        <button id="btnAuthPass">更新认证密码 !AUTHPASS</button>
+      </div>
+    </details>
+
+    <!-- ======================= 面板 3: 命令面板 ======================= -->
+    <details id="pnlCmd" class="s12 pnl3" open>
+      <summary><span class="pnum">③</span>命令面板<span class="stag">第 5 章 全部命令</span></summary>
+      <div class="fields">
+        <fieldset class="g-time">
+          <legend>时间 / 同步</legend>
+          <div class="cmds">
+            <button id="btnSync" title="!SYNC YYMMDDHHMMSS (自动取当前时间)">
+              同步 RTC 时间 !SYNC
+            </button>
+            <button id="btnTime" title="!TIME">明文时间二维码 !TIME</button>
+            <button id="btnEtime" title="!ETIME">加密时间二维码 !ETIME</button>
+          </div>
+        </fieldset>
+        <fieldset class="g-text">
+          <legend>文本二维码</legend>
+          <div class="cmds">
+            <input id="inText" maxlength="70" size="30" placeholder="文本内容 (≤70字符, 模式B≤48)" />
+            <button id="btnTextQR">发送文本二维码</button>
+            <button id="btnTextSave" title="!TEXT <文本>">保存业务文本 !TEXT</button>
+            <button id="btnTextClear" title="!TEXT (空)">清空业务文本</button>
+          </div>
+        </fieldset>
+        <fieldset class="g-disp">
+          <legend>显示控制</legend>
+          <div class="cmds">
+            <button id="btnRedisplay" title="!R / !REDISPLAY">重显上一帧 !R</button>
+            <button id="btnClr" title="!CLR / !CLEAR">清屏 !CLR</button>
+            <button id="btnSlp" title="!SLP / !SLEEP">屏幕休眠 !SLP</button>
+          </div>
+        </fieldset>
+        <fieldset class="g-mode">
+          <legend>加密模式</legend>
+          <div class="cmds">
+            <button id="btnModeQ">查询 !MODE</button>
+            <button id="btnMode0" title="模式A: URL明文+时间加密">模式A !MODE 0</button>
+            <button id="btnMode1" title="模式B: URL+时间整体加密(hex)">
+              模式B !MODE 1
+            </button>
+          </div>
+        </fieldset>
+        <fieldset class="g-alarm">
+          <legend>报警 / 周期刷新</legend>
+          <div class="cmds">
+            <input id="inAlarm" size="10" placeholder="mm|hhmm|OFF" />
+            <button id="btnAlarm" title="!ALARM mm|hhmm|OFF">设置报警 !ALARM</button>
+            <button id="btnAlarmTest" title="!ALARMTEST">模拟报警 !ALARMTEST</button>
+            <button id="btnAlarmStat" title="!ALARMSTAT">查询状态 !ALARMSTAT</button>
+            <input id="inPeriod" size="10" placeholder="1-255|0|OFF" />
+            <button id="btnPeriod" title="!PERIOD N">周期刷新 !PERIOD</button>
+          </div>
+        </fieldset>
+        <fieldset class="g-led">
+          <legend>LED / 状态</legend>
+          <div class="cmds">
+            <button id="btnLedQ">LED查询 !LED</button>
+            <button id="btnLedOn">LED亮 !LED 1</button>
+            <button id="btnLedOff">LED灭 !LED 0</button>
+            <input id="inLedN" size="6" placeholder="2-20" />
+            <button id="btnLedBlink">LED闪烁 !LED N</button>
+            <button id="btnBatt">电池 !BATT</button>
+            <button id="btnMacQ">MAC查询 !MAC</button>
+          </div>
+        </fieldset>
+        <fieldset class="g-danger">
+          <legend>危险区（操作前会确认）</legend>
+          <div class="cmds">
+            <input id="inMac" size="20" placeholder="AA:BB:CC:DD:EE:FF" />
+            <button id="btnMacSet" class="warn" title="设置后需重启生效">
+              设置MAC !MAC
+            </button>
+            <button id="btnRbt" class="warn" title="看门狗复位, 设备将断连">
+              软件复位 !RBT
+            </button>
+          </div>
+        </fieldset>
+        <fieldset class="g-custom">
+          <legend>自定义命令</legend>
+          <div class="cmds">
+            <input id="inCustom" size="44" placeholder="任意命令, 如 '!LED 3' 或任意文本" />
+            <button id="btnCustom">发送</button>
+            <span class="kbd">Enter</span>
+          </div>
+        </fieldset>
+      </div>
+    </details>
+
+    <!-- ======================= 面板 4: 图片传输 ======================= -->
+    <details id="pnlImg" class="s7 pnl4" open>
+      <summary><span class="pnum">④</span>图片传输<span class="stag">第 5.2 节 !IMG / !IMG 1 RLE</span></summary>
+      <div class="cmds">
+        <input type="file" id="inFile" accept="image/*,.bin,.raw" />
+        <button id="btnTestImg" class="sec">使用测试图</button>
+        <label>
+          <input type="checkbox" id="chkRle" checked />
+          RLE 压缩 (!IMG 1)
+        </label>
+        <label>
+          二值化阈值
+          <input type="number" id="inThreshold" value="128" min="0" max="255" style="width: 5em" />
+        </label>
+        <label>
+          分片字节
+          <input type="number" id="inChunk" value="180" min="1" max="194" style="width: 5em" />
+        </label>
+        <button id="btnSendImg" class="go" disabled>发送背景图</button>
+      </div>
+      <div class="imgrow">
+        <div>
+          <div class="cap">原图 (等比居中白底预览)</div>
+          <canvas id="previewRaw" width="128" height="296"></canvas>
+        </div>
+        <div>
+          <div class="cap">1bpp 预览 128×296 (2x 放大)</div>
+          <canvas id="previewBpp" width="256" height="592"></canvas>
+        </div>
+      </div>
+      <div class="note" id="imgStats">
+        尚未加载图片（面板 4 的预览与压缩率统计可离线使用）
+      </div>
+      <progress id="imgProg" max="100" value="0"></progress>
+    </details>
+
+    <!-- ======================= 面板 5: 加密工具 ======================= -->
+    <details id="pnlCrypto" class="s12 pnl5" open>
+      <summary><span class="pnum">⑤</span>加密工具<span class="stag">第 6 章 · 纯离线可用</span></summary>
+      <fieldset>
+        <legend>通用 AES-128 工具（ECB / CBC）</legend>
+        <div class="imgrow">
+          <div class="cryptobox">
+            <div class="note">
+              ECB — 用于 !AESKEY / !AUTH / !AUTHPASS 密文与模式A时间加密。WebCrypto
+              不支持 ECB，本页内联纯 JS 实现。
+            </div>
+            <div class="row">
+              <label>密钥</label>
+              <input id="ecbKey" value="00112233445566778899AABBCCDDEEFF" spellcheck="false" />
+            </div>
+            <div class="row">
+              <label>模式</label>
+              <select id="ecbMode">
+                <option value="enc">加密</option>
+                <option value="dec">解密</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>输入hex</label>
+              <input id="ecbIn" placeholder="16 字节倍数的 hex" spellcheck="false" />
+            </div>
+            <div class="row"><button id="btnEcb">执行</button></div>
+            <div class="row">
+              <label>输出hex</label>
+              <input id="ecbOut" readonly spellcheck="false" />
+            </div>
+          </div>
+          <div class="cryptobox">
+            <div class="note">
+              CBC — 用于模式B整体加密（无填充, 手动0填充）。IV 固定
+              0102030405060708090A0B0C0D0E0F10。
+            </div>
+            <div class="row">
+              <label>密钥</label>
+              <input id="cbcKey" value="00112233445566778899AABBCCDDEEFF" spellcheck="false" />
+            </div>
+            <div class="row">
+              <label>IV</label>
+              <input id="cbcIv" value="0102030405060708090A0B0C0D0E0F10" spellcheck="false" />
+            </div>
+            <div class="row">
+              <label>模式</label>
+              <select id="cbcMode">
+                <option value="enc">加密</option>
+                <option value="dec">解密</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>输入hex</label>
+              <input id="cbcIn" placeholder="16 字节倍数的 hex" spellcheck="false" />
+            </div>
+            <div class="row"><button id="btnCbc">执行</button></div>
+            <div class="row">
+              <label>输出hex</label>
+              <input id="cbcOut" readonly spellcheck="false" />
+            </div>
+          </div>
+        </div>
+      </fieldset>
+      <div class="fields2">
+        <fieldset>
+          <legend>模式 A（默认: URL 明文 + 时间加密, AES-128-ECB）</legend>
+          <div class="cmds">
+            <label>
+              密钥
+              <input id="mAkey" size="34" value="00112233445566778899AABBCCDDEEFF" spellcheck="false" />
+            </label>
+            <label>
+              <input type="checkbox" id="mAnow" checked />
+              用当前时间
+            </label>
+            <label>
+              时间
+              <input id="mAtime" size="14" placeholder="YYMMDDHHMMSS" spellcheck="false" />
+            </label>
+            <label>
+              nonce
+              <input id="mAnonce" type="number" value="0" min="0" max="255" style="width: 5em" />
+            </label>
+          </div>
+          <div class="cmds">
+            <label>
+              文本/URL
+              <input id="mAtxt" size="40" placeholder="http://www.abc.com (可空, 含?时自动用&t=)" spellcheck="false" />
+            </label>
+            <button id="btnmAEnc">编码 → 二维码串</button>
+          </div>
+          <div class="cmds">
+            <label>
+              二维码串
+              <input id="mAqr" size="58" readonly />
+            </label>
+            <label>
+              t=密文
+              <input id="mAqrCt" size="36" readonly />
+            </label>
+          </div>
+          <div class="cmds">
+            <label>
+              扫码内容/密文
+              <input id="mADecIn" size="58" placeholder="粘贴完整二维码串或 32 位 hex 密文 (自动提取 t=)" />
+            </label>
+            <button id="btnmADec">解码</button>
+            <label>
+              结果
+              <input id="mAdecOut" size="48" readonly />
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>模式 B（URL + 时间整体加密, AES-128-CBC, 输出 hex 字符串）</legend>
+          <div class="cmds">
+            <label>
+              密钥
+              <input id="mBkey" size="34" value="00112233445566778899AABBCCDDEEFF" spellcheck="false" />
+            </label>
+            <label>
+              <input type="checkbox" id="mBnow" checked />
+              用当前时间
+            </label>
+            <label>
+              时间
+              <input id="mBtime" size="14" placeholder="YYMMDDHHMMSS" spellcheck="false" />
+            </label>
+          </div>
+          <div class="cmds">
+            <label>
+              文本/URL
+              <input id="mBtxt" size="40" maxlength="48" placeholder="≤48 字符 (超长自动截断)" spellcheck="false" />
+            </label>
+            <button id="btnmBEnc">编码 → hex 密文</button>
+          </div>
+          <div class="cmds">
+            <label>
+              hex 密文
+              <input id="mBqr" size="58" readonly />
+            </label>
+            <label>
+              payload
+              <input id="mBqrPayload" size="40" readonly />
+            </label>
+          </div>
+          <div class="cmds">
+            <label>
+              扫码 hex
+              <input id="mBDecIn" size="58" placeholder="粘贴扫码得到的 hex 字符串 (自动去空白)" />
+            </label>
+            <button id="btnmBDec">解码</button>
+            <label>
+              结果
+              <input id="mBdecOut" size="48" readonly />
+            </label>
+          </div>
+        </fieldset>
+      </div>
+    </details>
+
+    <!-- ======================= 面板 6: 自动测试序列 ======================= -->
+    <details id="pnlAuto" class="s6 pnl6" open>
+      <summary><span class="pnum">⑥</span>自动测试序列<span class="stag">镜像 Node runTests</span></summary>
+      <div class="cmds">
+        <label>
+          循环次数
+          <input id="inLoops" type="number" value="1" min="1" max="99" style="width: 5em" />
+        </label>
+        <button id="btnRunAuto" class="go">运行完整测试序列</button>
+        <button id="btnAbort" disabled class="warn">中断</button>
+      </div>
+      <div class="note">
+        含 37 步: 认证→SYNC→TIME/ETIME→文本→!R→TEXT 存/清→AESKEY
+        错误密钥(期望ERR)/加密更新/恢复默认→MODE
+        1/0→ALARM/PERIOD→LED→BATT→MAC→CLR。密钥会被更新再恢复为默认。
+      </div>
+    </details>
+
+    <!-- ======================= 面板 7: 离线自检 ======================= -->
+    <details id="pnlSelftest" class="s5 pnl7">
+      <summary><span class="pnum">⑦</span>离线自检<span class="stag">无需设备/网络</span></summary>
+      <div class="cmds">
+        <button id="btnSelfAll" class="go">全部自检</button>
+        <button id="btnSelfAes" class="sec">AES 向量</button>
+        <button id="btnSelfRle" class="sec">RLE 往返</button>
+        <button id="btnSelfMode" class="sec">模式A/B 往返</button>
+        <button id="btnSelfImg" class="sec">图片管线</button>
+      </div>
+      <div class="note">
+        验证内联 AES-128 实现(FIPS-197/SP 800-38A 标准向量)、RLE 编码器、模式A/B
+        编解码、图片→1bpp 管线 — 全部为真机操作所依赖的同一套函数。
+      </div>
+    </details>
+
+    <!-- ======================= 面板 8: 日志 ======================= -->
+    <details id="pnlLog" open class="s12 pnl8">
+      <summary><span class="pnum">⑧</span>日志<span class="stag">TX / RX / PASS / FAIL</span></summary>
+      <div class="logbar">
+        <button id="btnLogClear" class="sec">清空日志</button>
+        <button id="btnLogCopy" class="sec">复制日志</button>
+      </div>
+      <div id="logBox"></div>
+    </details>
+  </main>
+
+  <script>
+    "use strict";
+    /* =========================================================================
+     * M1 常量
+     * ========================================================================= */
+    const SVCF = 0xffe0; // 自定义服务
+    const RXF = 0xffe2; // 写特征 (手机->设备)
+    const TXF = 0xffe1; // 通知特征 (设备->手机, 回执单帧≤64B)
+    const EPD_W = 128,
+      EPD_H = 296,
+      EPD_BUF = (EPD_W / 8) * EPD_H; // 4736B
+    const DEFAULT_KEY_HEX = "00112233445566778899AABBCCDDEEFF"; // 出厂默认密钥/密码(占位, 生产需更换)
+
+    /* =========================================================================
+     * 纯逻辑模块 (加密/RLE/模式A-B, 供页面与离线自检共用, 不触碰 DOM)
+     * ========================================================================= */
+    /*@@PURE_START@@*/
+    const IV_B_HEX = "0102030405060708090A0B0C0D0E0F10"; // 模式B CBC 固定 IV
+    const TE = new TextEncoder();
+    const TD = new TextDecoder("utf-8");
+    function utf8Encode(s) {
+      return TE.encode(s);
+    }
+    function utf8Decode(u8) {
+      return TD.decode(u8).replace(/\0+$/, "").trim();
+    }
+    function pad(n) {
+      return String(n).padStart(2, "0");
+    }
+    function hexToBytes(hex) {
+      const s = String(hex).trim().replace(/\s+/g, "");
+      if (s.length % 2 !== 0) throw new Error("hex 长度必须为偶数");
+      if (!/^[0-9a-fA-F]*$/.test(s)) throw new Error("包含非 hex 字符");
+      const out = new Uint8Array(s.length / 2);
+      for (let i = 0; i < out.length; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
+      return out;
+    }
+    function bytesToHex(u8) {
+      let s = "";
+      for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, "0");
+      return s;
+    }
+    function numToBcd(n) {
+      n = ((n % 100) + 100) % 100;
+      return (((n / 10) | 0) << 4) | (n % 10);
+    }
+    function bcdToNum(b) {
+      return ((b >> 4) & 0xf) * 10 + (b & 0xf);
+    }
+    function nowYMDHMS(d) {
+      d = d || new Date();
+      return (
+        String(d.getFullYear()).slice(2) +
+        pad(d.getMonth() + 1) +
+        pad(d.getDate()) +
+        pad(d.getHours()) +
+        pad(d.getMinutes()) +
+        pad(d.getSeconds())
+      );
+    }
+
+    /* ---------------- AES-128 核心 (纯 JS, ECB/CBC, 加解密) ----------------
+     * WebCrypto 不支持 ECB, 故内联实现。SBOX/INV_SBOX 为标准表。
+     * 加载时以 FIPS-197 Appendix C.1 向量自检。
+     */
+    const SBOX = Uint8Array.from([
+      0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe,
+      0xd7, 0xab, 0x76, 0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4,
+      0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0, 0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7,
+      0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15, 0x04, 0xc7, 0x23, 0xc3,
+      0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75, 0x09,
+      0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3,
+      0x2f, 0x84, 0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe,
+      0x39, 0x4a, 0x4c, 0x58, 0xcf, 0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85,
+      0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8, 0x51, 0xa3, 0x40, 0x8f, 0x92,
+      0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2, 0xcd, 0x0c,
+      0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19,
+      0x73, 0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14,
+      0xde, 0x5e, 0x0b, 0xdb, 0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2,
+      0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79, 0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5,
+      0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08, 0xba, 0x78, 0x25,
+      0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+      0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86,
+      0xc1, 0x1d, 0x9e, 0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e,
+      0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf, 0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42,
+      0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
+    ]);
+    const INV_SBOX = Uint8Array.from([
+      0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81,
+      0xf3, 0xd7, 0xfb, 0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e,
+      0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb, 0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23,
+      0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e, 0x08, 0x2e, 0xa1, 0x66,
+      0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25, 0x72,
+      0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65,
+      0xb6, 0x92, 0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46,
+      0x57, 0xa7, 0x8d, 0x9d, 0x84, 0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a,
+      0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06, 0xd0, 0x2c, 0x1e, 0x8f, 0xca,
+      0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b, 0x3a, 0x91,
+      0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6,
+      0x73, 0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8,
+      0x1c, 0x75, 0xdf, 0x6e, 0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f,
+      0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b, 0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2,
+      0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4, 0x1f, 0xdd, 0xa8,
+      0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
+      0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93,
+      0xc9, 0x9c, 0xef, 0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb,
+      0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61, 0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6,
+      0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d,
+    ]);
+    const RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
+
+    function expandKey(key) {
+      // 16B key -> 176B 轮密钥 (11 轮)
+      const w = new Uint8Array(176);
+      w.set(key, 0);
+      const tmp = new Uint8Array(4);
+      for (let i = 4; i < 44; i++) {
+        tmp[0] = w[(i - 1) * 4];
+        tmp[1] = w[(i - 1) * 4 + 1];
+        tmp[2] = w[(i - 1) * 4 + 2];
+        tmp[3] = w[(i - 1) * 4 + 3];
+        if (i % 4 === 0) {
+          const t0 = tmp[0];
+          tmp[0] = tmp[1];
+          tmp[1] = tmp[2];
+          tmp[2] = tmp[3];
+          tmp[3] = t0; // RotWord
+          for (let j = 0; j < 4; j++) tmp[j] = SBOX[tmp[j]]; // SubWord
+          tmp[0] ^= RCON[i / 4 - 1];
+        }
+        for (let j = 0; j < 4; j++) w[i * 4 + j] = w[(i - 4) * 4 + j] ^ tmp[j];
+      }
+      return w;
+    }
+    let _wKey = "",
+      _w = null; // 轮密钥缓存 (按 key hex)
+    function getW(key) {
+      const h = bytesToHex(key);
+      if (h === _wKey) return _w;
+      _wKey = h;
+      _w = expandKey(key);
+      return _w;
+    }
+    function addRoundKey(s, w, round) {
+      for (let i = 0; i < 16; i++) s[i] ^= w[round * 16 + i];
+    }
+    function subBytes(s) {
+      for (let i = 0; i < 16; i++) s[i] = SBOX[s[i]];
+    }
+    function invSubBytes(s) {
+      for (let i = 0; i < 16; i++) s[i] = INV_SBOX[s[i]];
+    }
+    function shiftRows(s) {
+      // 第 r 行左移 r (状态索引 = 列*4+行); 拷贝后再写, 避免 Node Buffer 视图别名问题
+      const t = Uint8Array.from(s);
+      for (let r = 0; r < 4; r++)
+        for (let c = 0; c < 4; c++) s[c * 4 + r] = t[((c + r) % 4) * 4 + r];
+    }
+    function invShiftRows(s) {
+      const t = Uint8Array.from(s);
+      for (let r = 0; r < 4; r++)
+        for (let c = 0; c < 4; c++) s[c * 4 + r] = t[((c - r + 4) % 4) * 4 + r];
+    }
+    function xtime(x) {
+      return ((x << 1) ^ (((x >> 7) & 1) * 0x1b)) & 0xff;
+    }
+    function mixColumns(s) {
+      for (let c = 0; c < 4; c++) {
+        const i = c * 4;
+        const s0 = s[i],
+          s1 = s[i + 1],
+          s2 = s[i + 2],
+          s3 = s[i + 3];
+        const t = s0 ^ s1 ^ s2 ^ s3,
+          u = s0;
+        s[i] ^= t ^ xtime(s0 ^ s1);
+        s[i + 1] ^= t ^ xtime(s1 ^ s2);
+        s[i + 2] ^= t ^ xtime(s2 ^ s3);
+        s[i + 3] ^= t ^ xtime(s3 ^ u);
+      }
+    }
+    function invMixColumns(s) {
+      // 标准技巧: u/v 异或后再走一遍 mixColumns
+      for (let c = 0; c < 4; c++) {
+        const i = c * 4;
+        const u = xtime(xtime(s[i] ^ s[i + 2]));
+        const v = xtime(xtime(s[i + 1] ^ s[i + 3]));
+        s[i] ^= u;
+        s[i + 1] ^= v;
+        s[i + 2] ^= u;
+        s[i + 3] ^= v;
+        const t = s[i] ^ s[i + 1] ^ s[i + 2] ^ s[i + 3],
+          w = s[i];
+        s[i] ^= t ^ xtime(s[i] ^ s[i + 1]);
+        s[i + 1] ^= t ^ xtime(s[i + 1] ^ s[i + 2]);
+        s[i + 2] ^= t ^ xtime(s[i + 2] ^ s[i + 3]);
+        s[i + 3] ^= t ^ xtime(s[i + 3] ^ w);
+      }
+    }
+    function encryptBlock(keyBytes, pt) {
+      const s = Uint8Array.from(pt); // 防御性拷贝 (Node Buffer.slice 返回视图, 会别名输入)
+      const w = getW(keyBytes);
+      addRoundKey(s, w, 0);
+      for (let r = 1; r <= 9; r++) {
+        subBytes(s);
+        shiftRows(s);
+        mixColumns(s);
+        addRoundKey(s, w, r);
+      }
+      subBytes(s);
+      shiftRows(s);
+      addRoundKey(s, w, 10);
+      return s;
+    }
+    function decryptBlock(keyBytes, ct) {
+      const s = Uint8Array.from(ct);
+      const w = getW(keyBytes);
+      addRoundKey(s, w, 10);
+      for (let r = 9; r >= 1; r--) {
+        invShiftRows(s);
+        invSubBytes(s);
+        addRoundKey(s, w, r);
+        invMixColumns(s);
+      }
+      invShiftRows(s);
+      invSubBytes(s);
+      addRoundKey(s, w, 0);
+      return s;
+    }
+    function ecbEncrypt(keyBytes, data) {
+      // 长度须为 16 字节倍数 (与 Node setAutoPadding(false) 一致)
+      if (data.length % 16 !== 0) throw new Error("ECB 数据长度需为 16 字节倍数");
+      const out = new Uint8Array(data.length);
+      for (let i = 0; i < data.length; i += 16)
+        out.set(encryptBlock(keyBytes, data.slice(i, i + 16)), i);
+      return out;
+    }
+    function ecbDecrypt(keyBytes, data) {
+      if (data.length % 16 !== 0) throw new Error("ECB 数据长度需为 16 字节倍数");
+      const out = new Uint8Array(data.length);
+      for (let i = 0; i < data.length; i += 16)
+        out.set(decryptBlock(keyBytes, data.slice(i, i + 16)), i);
+      return out;
+    }
+    function cbcEncrypt(keyBytes, ivBytes, data) {
+      if (data.length % 16 !== 0) throw new Error("CBC 数据长度需为 16 字节倍数");
+      const out = new Uint8Array(data.length);
+      let prev = ivBytes.slice();
+      for (let i = 0; i < data.length; i += 16) {
+        const blk = Uint8Array.from(data.subarray(i, i + 16)); // 拷贝后再异或, 避免改写输入
+        for (let j = 0; j < 16; j++) blk[j] ^= prev[j];
+        const ct = encryptBlock(keyBytes, blk);
+        out.set(ct, i);
+        prev = ct;
+      }
+      return out;
+    }
+    function cbcDecrypt(keyBytes, ivBytes, data) {
+      if (data.length % 16 !== 0) throw new Error("CBC 数据长度需为 16 字节倍数");
+      const out = new Uint8Array(data.length);
+      let prev = ivBytes.slice();
+      for (let i = 0; i < data.length; i += 16) {
+        const ct = Uint8Array.from(data.subarray(i, i + 16));
+        const pt = decryptBlock(keyBytes, ct);
+        for (let j = 0; j < 16; j++) out[i + j] = pt[j] ^ prev[j];
+        prev = ct;
+      }
+      return out;
+    }
+    function ecbHex(keyHex, ptHex) {
+      return bytesToHex(ecbEncrypt(hexToBytes(keyHex), hexToBytes(ptHex)));
+    }
+
+    /* ---------------- 模式 A: URL 明文 + 时间加密 (AES-128-ECB) ----------------
+     * 时间明文 16B: [0]年BCD [1]月 [2]日 [3]时 [4]分 [5]秒 [6]星期(0=周日)
+     *               [7]nonce [8]='Q' [9]='R' [10]=0x01 [11..15]=0
+     * 二维码: <文本>?t=<32hex> (文本含 ? 时用 &t=)
+     */
+    function packModeATime(d, nonce) {
+      const pt = new Uint8Array(16);
+      pt[0] = numToBcd(d.getFullYear() % 100);
+      pt[1] = numToBcd(d.getMonth() + 1);
+      pt[2] = numToBcd(d.getDate());
+      pt[3] = numToBcd(d.getHours());
+      pt[4] = numToBcd(d.getMinutes());
+      pt[5] = numToBcd(d.getSeconds());
+      pt[6] = numToBcd(d.getDay());
+      pt[7] = (nonce || 0) & 0xff;
+      pt[8] = 0x51;
+      pt[9] = 0x52;
+      pt[10] = 0x01;
+      return pt;
+    }
+    function modeAEncode(keyHex, txt, pt16) {
+      const sep = (txt || "").includes("?") ? "&" : "?";
+      return (
+        (txt || "") + sep + "t=" + bytesToHex(ecbEncrypt(hexToBytes(keyHex), pt16))
+      );
+    }
+    function modeADecode(keyHex, input) {
+      const s = String(input || "").trim();
+      let ctHex = s;
+      const m = s.match(/[?&]t=([0-9a-fA-F]{32})/);
+      if (m) ctHex = m[1];
+      ctHex = ctHex.replace(/\s+/g, "").toLowerCase();
+      if (!/^[0-9a-f]{32}$/.test(ctHex))
+        return { ok: false, error: "未找到 32 位 hex 密文 (t= 参数)" };
+      let pt;
+      try {
+        pt = ecbDecrypt(hexToBytes(keyHex), hexToBytes(ctHex));
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+      if (pt[8] !== 0x51 || pt[9] !== 0x52 || pt[10] !== 0x01)
+        return { ok: false, error: "魔数校验失败（密钥错误或非模式A密文）" };
+      const yy = bcdToNum(pt[0]),
+        mo = bcdToNum(pt[1]),
+        dd = bcdToNum(pt[2]),
+        hh = bcdToNum(pt[3]),
+        mi = bcdToNum(pt[4]),
+        ss = bcdToNum(pt[5]);
+      return {
+        ok: true,
+        time: `20${pad(yy)}-${pad(mo)}-${pad(dd)} ${pad(hh)}:${pad(mi)}:${pad(ss)}`,
+        week: bcdToNum(pt[6]),
+        nonce: pt[7],
+      };
+    }
+
+    /* ---------------- 模式 B: URL+时间整体加密 (AES-128-CBC, hex 输出) ----------------
+     * 明文帧: [0]=payload长度(1B) [1..]=payload (<文本>?t=YYMMDDHHMMSS) 后 0x00 填充至 16 倍数
+     * IV 固定 0102030405060708090A0B0C0D0E0F10, 文本上限 48 字符
+     */
+    function modeBEncode(keyHex, txt, time12) {
+      time12 = String(time12 || "").trim();
+      if (!/^\d{12}$/.test(time12)) throw new Error("时间需为 12 位 YYMMDDHHMMSS");
+      let t = String(txt || ""),
+        truncated = false;
+      if (t.length > 48) {
+        t = t.slice(0, 48);
+        truncated = true;
+      }
+      const payload = (t ? t + (t.includes("?") ? "&" : "?") + "t=" : "") + time12;
+      const pl = utf8Encode(payload);
+      const frame = new Uint8Array(Math.ceil((1 + pl.length) / 16) * 16);
+      frame[0] = pl.length;
+      frame.set(pl, 1);
+      return {
+        hex: bytesToHex(cbcEncrypt(hexToBytes(keyHex), hexToBytes(IV_B_HEX), frame)),
+        payload,
+        truncated,
+      };
+    }
+    function modeBDecode(keyHex, hexStr) {
+      const s = String(hexStr || "")
+        .trim()
+        .replace(/\s+/g, "");
+      if (!/^[0-9a-fA-F]+$/.test(s))
+        return { ok: false, error: "输入需为纯 hex 字符串" };
+      if (s.length % 32 !== 0)
+        return { ok: false, error: "hex 长度需为 16 字节的倍数" };
+      let frame;
+      try {
+        frame = cbcDecrypt(hexToBytes(keyHex), hexToBytes(IV_B_HEX), hexToBytes(s));
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+      const len = frame[0];
+      if (len < 1 || len > frame.length - 1)
+        return { ok: false, error: `长度字段异常 (${len})，可能密钥错误` };
+      const payload = utf8Decode(frame.subarray(1, 1 + len));
+      const m = payload.match(/(?:^|[?&]t=)(\d{12})$/);
+      let time = null;
+      if (m)
+        time = `20${m[1].slice(0, 2)}-${m[1].slice(2, 4)}-${m[1].slice(4, 6)} ${m[1].slice(6, 8)}:${m[1].slice(8, 10)}:${m[1].slice(10, 12)}`;
+      return { ok: true, payload, time };
+    }
+
+    /* ---------------- RLE 压缩 (与设备 img_rle_feed 配套, 逐字节等价移植 Node 版) ----------------
+     * 控制 <0x80: 字面量, 长度=控制+1, 后跟原样字节
+     * 控制 >=0x80: 重复, 次数=控制-0x80+1 (1~128), 后跟 1 个值字节
+     */
+    function rleEncode(buf) {
+      const out = [];
+      const n = buf.length;
+      let i = 0;
+      while (i < n) {
+        let r = i;
+        while (r < n && buf[r] === buf[i] && r - i < 128) r++;
+        const rlen = r - i;
+        if (rlen >= 3) {
+          out.push(0x80 + rlen - 1, buf[i]);
+          i = r;
+        } else {
+          const start = i;
+          let cnt = 0;
+          while (i < n && cnt < 128) {
+            let rr = i;
+            while (rr < n && buf[rr] === buf[i] && rr - i < 128) rr++;
+            const rrlen = rr - i;
+            if (rrlen >= 3) break;
+            cnt += rrlen;
+            i = rr;
+          }
+          out.push(cnt - 1);
+          for (let k = start; k < start + cnt; k++) out.push(buf[k]);
+        }
+      }
+      return Uint8Array.from(out);
+    }
+    function rleDecode(buf) {
+      // 仅用于离线自检验证 (设备端负责真实解压)
+      const out = [];
+      let i = 0;
+      while (i < buf.length) {
+        const c = buf[i++];
+        if (c < 0x80) {
+          const len = c + 1;
+          for (let k = 0; k < len; k++) {
+            if (i >= buf.length) throw new Error("RLE 数据截断");
+            out.push(buf[i++]);
+          }
+        } else {
+          const n = c - 0x80 + 1;
+          if (i >= buf.length) throw new Error("RLE 数据截断");
+          const v = buf[i++];
+          for (let k = 0; k < n; k++) out.push(v);
+        }
+      }
+      return Uint8Array.from(out);
+    }
+
+    const __PURE__ = {
+      // 供 node 侧验证脚本提取 (页面内不使用)
+      hexToBytes,
+      bytesToHex,
+      utf8Encode,
+      utf8Decode,
+      numToBcd,
+      bcdToNum,
+      pad,
+      nowYMDHMS,
+      ecbEncrypt,
+      ecbDecrypt,
+      cbcEncrypt,
+      cbcDecrypt,
+      ecbHex,
+      expandKey,
+      packModeATime,
+      modeAEncode,
+      modeADecode,
+      modeBEncode,
+      modeBDecode,
+      rleEncode,
+      rleDecode,
+    };
+    /*@@PURE_END@@*/
+
+    /* =========================================================================
+     * M2 日志 / 计数 / DOM 工具
+     * ========================================================================= */
+    const $ = (sel) => document.querySelector(sel);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let passCount = 0,
+      failCount = 0;
+
+    function log(level, msg) {
+      const d = new Date();
+      const ts =
+        pad(d.getHours()) +
+        ":" +
+        pad(d.getMinutes()) +
+        ":" +
+        pad(d.getSeconds()) +
+        "." +
+        String(d.getMilliseconds()).padStart(3, "0");
+      const box = $("#logBox");
+      const div = document.createElement("div");
+      div.className = "lg lg-" + String(level).toLowerCase();
+      div.textContent = `[${ts}] [${level}] ${msg}`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+    function count(name, ok, reply) {
+      if (ok) {
+        passCount++;
+        log("PASS", name + (reply ? ` (${reply})` : ""));
+      } else {
+        failCount++;
+        log("FAIL", name + (reply ? ` (${reply})` : " (无回执)"));
+      }
+      $("#statPass").textContent = passCount;
+      $("#statFail").textContent = failCount;
+    }
+    function setConnState(st) {
+      const map = {
+        disconnected: ["未连接", "st-off"],
+        connecting: ["连接中…", "st-busy"],
+        connected: ["已连接", "st-on"],
+      };
+      const [txt, cls] = map[st] || map.disconnected;
+      const el = $("#connState");
+      el.textContent = txt;
+      el.className = "badge " + cls;
+      $("#btnConnect").disabled = st === "connecting" || st === "connected";
+      $("#btnDisconnect").disabled = st !== "connected";
+    }
+    function setAuthBadge(ok) {
+      const el = $("#authState");
+      el.textContent = ok ? "已认证" : "未认证";
+      el.className = "badge " + (ok ? "st-on" : "st-off");
+    }
+
+    /* =========================================================================
+     * M3 BLE 连接管理 (Web Bluetooth, 第 4 章)
+     * ========================================================================= */
+    const BLE = {
+      device: null,
+      server: null,
+      svc: null,
+      rx: null,
+      tx: null,
+      authDone: false, // 会话认证状态 (断开即失效)
+      busy: Promise.resolve(), // 命令串行化链
+      pending: [], // 回复等待队列 (FIFO)
+      aborted: false, // 自动测试中断标志
+    };
+    function enqueue(op) {
+      const p = BLE.busy.then(op);
+      BLE.busy = p.then(
+        () => { },
+        () => { }
+      );
+      return p;
+    }
+
+    function waitReply(ms = 4000) {
+      return new Promise((res) => {
+        if (!BLE.tx) {
+          res(null);
+          return;
+        }
+        let settled = false;
+        const item = {
+          resolve: (v) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(item.timer);
+              res(v);
+            }
+          },
+        };
+        item.timer = setTimeout(() => item.resolve(null), ms);
+        BLE.pending.push(item);
+      });
+    }
+
+    let contItem = null; // 回执接近 64B 上限时的续帧收集 (保险, 文档回执均单帧)
+    function onNotify(ev) {
+      const dv = ev.target.value;
+      const u8 = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+      const text = utf8Decode(u8);
+      log("RX", text);
+      if (contItem) {
+        contItem.acc += text;
+        return;
+      }
+      if (BLE.pending.length) {
+        const item = BLE.pending.shift();
+        if (text.length >= 60) {
+          contItem = { acc: text };
+          setTimeout(() => {
+            const acc = contItem ? contItem.acc : text; // 期间到达的续帧已累积进 contItem.acc
+            contItem = null;
+            item.resolve(acc);
+          }, 120);
+        } else item.resolve(text);
+      } else {
+        log("INFO", "未请求的回执: " + text);
+      }
+    }
+
+    async function connect() {
+      try {
+        setConnState("connecting");
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: "QR-EINK" }],
+          optionalServices: [SVCF],
+        });
+        device.addEventListener("gattserverdisconnected", onDisconnected);
+        log(
+          "INFO",
+          `已选择设备: ${device.name || "(无名称)"} (${device.id})，正在连接 GATT...`
+        );
+        const server = await device.gatt.connect();
+        log("INFO", "GATT 已连接，发现服务 0xFFE0...");
+        const svc = await server.getPrimaryService(SVCF);
+        const rx = await svc.getCharacteristic(RXF);
+        const tx = await svc.getCharacteristic(TXF);
+        await tx.startNotifications();
+        tx.addEventListener("characteristicvaluechanged", onNotify);
+        BLE.device = device;
+        BLE.server = server;
+        BLE.svc = svc;
+        BLE.rx = rx;
+        BLE.tx = tx;
+        BLE.authDone = false;
+        $("#devName").textContent = device.name || "?";
+        $("#devId").textContent = device.id;
+        $("#svcState").textContent = "✓ 0xFFE0 / RX 0xFFE2 / TX 0xFFE1 就绪";
+        $("#svcState").style.color = "var(--ok)";
+        setAuthBadge(false);
+        setConnState("connected");
+        log("INFO", "服务就绪：0xFFE2(写) / 0xFFE1(通知) 已订阅");
+        await sleep(300); // 等设备端 CCCD 生效, 避免首次 notify 被丢弃
+      } catch (e) {
+        if (e.name === "NotFoundError")
+          log("ERR", "未找到设备：请上电或磁铁唤醒设备，并在 30 秒广播窗口内重试");
+        else if (e.name === "NotAllowedError") log("INFO", "已取消选择设备");
+        else
+          log(
+            "ERR",
+            "连接失败: " +
+            e.message +
+            (e.name === "NetworkError" ? "（设备可能已深睡，请唤醒后重试）" : "")
+          );
+        setConnState("disconnected");
+      }
+    }
+    function onDisconnected() {
+      log("WARN", "设备已断开（认证状态已清除）");
+      while (BLE.pending.length) BLE.pending.shift().resolve(null);
+      contItem = null;
+      BLE.authDone = false;
+      BLE.rx = null;
+      BLE.tx = null;
+      setAuthBadge(false);
+      setConnState("disconnected");
+    }
+    function disconnect() {
+      try {
+        if (BLE.device && BLE.device.gatt && BLE.device.gatt.connected)
+          BLE.device.gatt.disconnect();
+      } catch (e) {
+        log("ERR", e.message);
+      }
+    }
+
+    /* =========================================================================
+     * M4 命令分发 + 会话认证 (第 5/6 章)
+     * ========================================================================= */
+    /* 无需认证的读操作 (文档 §6.3) */
+    function isReadOnly(cmd) {
+      const parts = String(cmd).trim().toUpperCase().split(/\s+/);
+      const head = parts[0];
+      if (["!TIME", "!ETIME", "!R", "!REDISPLAY", "!BATT", "!ALARMSTAT"].includes(head))
+        return true;
+      if (["!AESKEY", "!MODE", "!LED", "!MAC"].includes(head) && parts.length === 1)
+        return true;
+      return false;
+    }
+    async function sendRaw(u8) {
+      if (!BLE.rx) throw new Error("设备未连接");
+      if (u8.length > 0 && u8[0] === 0xaa && u8.length > 3)
+        log(
+          "TX",
+          `HEX ${bytesToHex(u8.subarray(0, Math.min(8, u8.length)))}… (${u8.length}B)`
+        );
+      else log("TX", utf8Decode(u8));
+      try {
+        await BLE.rx.writeValueWithoutResponse(u8);
+      } catch (e) {
+        await BLE.rx.writeValueWithResponse(u8);
+      } // 回退 (设备两种写均支持)
+    }
+    /* 会话认证: 查询当前密钥 -> ECB(当前密钥, 密码) -> !AUTH <ct> (移植 Node ensureAuth) */
+    async function ensureAuth() {
+      if (BLE.authDone) return true;
+      if (!BLE.rx) throw new Error("设备未连接");
+      const p1 = waitReply(3000);
+      await sendRaw(utf8Encode("!AESKEY"));
+      const r1 = await p1;
+      if (!r1 || !r1.toUpperCase().startsWith("OK:AESKEY ")) {
+        log("INFO", "无法获取当前密钥 (" + (r1 || "无回执") + ")，跳过认证");
+        return false;
+      }
+      const curKey = r1.substring("OK:AESKEY ".length).trim().toLowerCase();
+      const pass = String($("#inPassword").value || "")
+        .toLowerCase()
+        .replace(/[^0-9a-f]/g, "");
+      if (pass.length !== 32) {
+        log("ERR", "认证密码必须是 32 位 hex");
+        return false;
+      }
+      const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(pass)));
+      log("INFO", "认证密文: " + ct);
+      const p2 = waitReply(5000);
+      await sendRaw(utf8Encode("!AUTH " + ct));
+      const r2 = await p2;
+      if (r2 === "OK:AUTH") {
+        BLE.authDone = true;
+        setAuthBadge(true);
+        log("INFO", "[AUTH] 认证成功");
+        return true;
+      }
+      setAuthBadge(false);
+      log(
+        "ERR",
+        "[AUTH] 认证失败: " + (r2 || "无回执") + "，写操作将被拒绝 (ERR:AUTH)"
+      );
+      return false;
+    }
+    function matchReply(reply, expect) {
+      if (reply === null) return false;
+      if (expect === null || expect === undefined) return true;
+      if (expect instanceof RegExp) return expect.test(reply);
+      return String(reply).includes(String(expect));
+    }
+    /* 发一条命令: 自动认证(写操作) -> 发送 -> 等回执 -> 判定计数
+     * 收到 ERR:AUTH 时自动重新认证并重发一次 (覆盖断开重连后认证过期场景) */
+    async function sendCmd(cmd, opts) {
+      const {
+        auth = "auto",
+        timeout = 4000,
+        expect = null,
+        delayAfter = 0,
+      } = opts || {};
+      if (!BLE.rx) {
+        log("ERR", "请先连接设备（顶栏点击「连接设备」）");
+        return { reply: null, ok: false };
+      }
+      if (auth === "auto" && !isReadOnly(cmd)) await ensureAuth();
+      const p = waitReply(timeout);
+      await sendRaw(utf8Encode(cmd));
+      let reply = await p;
+      if (reply && reply.startsWith("ERR:AUTH") && auth === "auto") {
+        log("INFO", "收到 ERR:AUTH，重新认证后重发一次...");
+        BLE.authDone = false;
+        await ensureAuth();
+        if (BLE.authDone) {
+          const p2 = waitReply(timeout);
+          await sendRaw(utf8Encode(cmd));
+          reply = await p2;
+        }
+      }
+      const ok = matchReply(reply, expect);
+      count(cmd, ok, reply);
+      if (delayAfter) await sleep(delayAfter);
+      return { reply, ok };
+    }
+    function parseAlarmStat(s) {
+      // A=1 AH=14 AM=30 P=0 PM=00 M=1 K=1 T=24 -> 中文
+      const g = (k) => {
+        const m = s.match(new RegExp("\\b" + k + "=([0-9A-Fa-f]+)"));
+        return m ? m[1] : null;
+      };
+      const A = g("A"),
+        AH = g("AH"),
+        AM = g("AM"),
+        P = g("P"),
+        PM = g("PM"),
+        M = g("M"),
+        K = g("K"),
+        T = g("T");
+      if (A === null) return s;
+      const parts = [];
+      parts.push("报警=" + (A === "1" ? "开" : "关"));
+      if (A === "1")
+        parts.push(
+          "时间=" + (AH === "FF" ? "每小时" : (AH || "?") + ":" + (AM || "?"))
+        );
+      parts.push("周期=" + (P === "1" ? (PM || "?") + "分钟" : "关"));
+      parts.push("模式=" + (M === "1" ? "B(整体加密)" : "A(时间加密)"));
+      parts.push("密钥=" + (K === "1" ? "自定义" : "默认"));
+      parts.push("文本长度=" + (T || "0"));
+      return parts.join(" ");
+    }
+
+    /* =========================================================================
+     * M5 图片管线 (Canvas 替代 jimp, 第 5.2 节)
+     * ========================================================================= */
+    async function imageToEpd(bmp, threshold) {
+      // 等比居中(白底) -> 灰度 -> 二值化 -> 1bpp
+      const c = document.createElement("canvas");
+      c.width = EPD_W;
+      c.height = EPD_H;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, EPD_W, EPD_H);
+      const ratio = Math.min(EPD_W / bmp.width, EPD_H / bmp.height);
+      const nw = Math.max(1, Math.round(bmp.width * ratio));
+      const nh = Math.max(1, Math.round(bmp.height * ratio));
+      ctx.drawImage(
+        bmp,
+        Math.floor((EPD_W - nw) / 2),
+        Math.floor((EPD_H - nh) / 2),
+        nw,
+        nh
+      );
+      const px = ctx.getImageData(0, 0, EPD_W, EPD_H).data;
+      const buf = new Uint8Array(EPD_BUF); // 1=白 0=黑, 行优先每行16字节 MSB first
+      for (let y = 0; y < EPD_H; y++) {
+        for (let x = 0; x < EPD_W; x++) {
+          const p = (y * EPD_W + x) * 4;
+          const gray = 0.299 * px[p] + 0.587 * px[p + 1] + 0.114 * px[p + 2];
+          if (gray >= threshold) buf[y * (EPD_W / 8) + (x >> 3)] |= 0x80 >> (x & 7);
+        }
+      }
+      return buf;
+    }
+    function drawPreview(buf, canvas) {
+      // 1bpp -> 2x 预览 (1=白 0=黑)
+      canvas.width = EPD_W * 2;
+      canvas.height = EPD_H * 2;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#000";
+      for (let y = 0; y < EPD_H; y++) {
+        for (let x = 0; x < EPD_W; x++) {
+          const bit = (buf[y * (EPD_W / 8) + (x >> 3)] >> (7 - (x & 7))) & 1;
+          if (!bit) ctx.fillRect(x * 2, y * 2, 2, 2);
+        }
+      }
+    }
+    function drawRawPreview(bmp, canvas) {
+      // 原图等比居中预览
+      canvas.width = EPD_W;
+      canvas.height = EPD_H;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, EPD_W, EPD_H);
+      const ratio = Math.min(EPD_W / bmp.width, EPD_H / bmp.height);
+      const nw = Math.max(1, Math.round(bmp.width * ratio));
+      const nh = Math.max(1, Math.round(bmp.height * ratio));
+      ctx.drawImage(
+        bmp,
+        Math.floor((EPD_W - nw) / 2),
+        Math.floor((EPD_H - nh) / 2),
+        nw,
+        nh
+      );
+    }
+    function makeTestImage() {
+      // 确定性内置测试图: 白底黑框+对角条纹+中央棋盘格
+      const c = document.createElement("canvas");
+      c.width = 300;
+      c.height = 400;
+      const x = c.getContext("2d");
+      x.fillStyle = "#fff";
+      x.fillRect(0, 0, 300, 400);
+      x.fillStyle = "#000";
+      x.fillRect(0, 0, 300, 2);
+      x.fillRect(0, 398, 300, 2);
+      x.fillRect(0, 0, 2, 400);
+      x.fillRect(298, 0, 2, 400);
+      x.lineWidth = 8;
+      x.beginPath();
+      x.moveTo(0, 0);
+      x.lineTo(300, 400);
+      x.stroke();
+      x.beginPath();
+      x.moveTo(300, 0);
+      x.lineTo(0, 400);
+      x.stroke();
+      for (let gy = 0; gy < 12; gy++)
+        for (let gx = 0; gx < 12; gx++)
+          if ((gx + gy) % 2 === 0)
+            x.fillRect(150 - 24 + gx * 4, 200 - 24 + gy * 4, 4, 4);
+      return c;
+    }
+    let imgBitmap = null,
+      imgEpdBuf = null;
+    async function loadImageFile(file) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".bin") || name.endsWith(".raw")) {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        if (buf.length !== EPD_BUF)
+          throw new Error(`raw 文件需 ${EPD_BUF}B，实际 ${buf.length}B`);
+        imgBitmap = null;
+        imgEpdBuf = buf;
+        $("#inThreshold").disabled = true;
+        drawPreview(buf, $("#previewRaw"));
+      } else {
+        imgBitmap = await createImageBitmap(file);
+        $("#inThreshold").disabled = false;
+        drawRawPreview(imgBitmap, $("#previewRaw"));
+        await refreshEpdFromBitmap();
+      }
+      updateImgUi();
+    }
+    async function refreshEpdFromBitmap() {
+      if (!imgBitmap) return;
+      imgEpdBuf = await imageToEpd(
+        imgBitmap,
+        parseInt($("#inThreshold").value, 10) || 128
+      );
+    }
+    function updateImgUi() {
+      if (!imgEpdBuf) {
+        $("#imgStats").textContent = "尚未加载图片（预览与压缩率统计可离线使用）";
+        return;
+      }
+      drawPreview(imgEpdBuf, $("#previewBpp"));
+      const rle = rleEncode(imgEpdBuf);
+      $("#imgStats").textContent =
+        `原始 ${EPD_BUF}B → RLE ${rle.length}B (${((100 * rle.length) / EPD_BUF).toFixed(1)}%)`;
+      $("#btnSendImg").disabled = false;
+    }
+    function setProg(cur, total) {
+      $("#imgProg").value = total ? Math.round((100 * cur) / total) : 0;
+    }
+    /* 发送背景图: !IMG [1] -> 0xAA 分片帧 -> !IMGEND (第 5.2 节) */
+    async function sendImage() {
+      if (!imgEpdBuf) {
+        log("ERR", "请先选择图片或点击「使用测试图」");
+        return;
+      }
+      if (!BLE.rx) {
+        log("ERR", "请先连接设备");
+        return;
+      }
+      await ensureAuth();
+      const rle = $("#chkRle").checked;
+      const data = rle ? rleEncode(imgEpdBuf) : imgEpdBuf;
+      log(
+        "INFO",
+        `[IMG] ${imgEpdBuf.length}B -> ${data.length}B (${rle ? "RLE" : "raw"}, ${((100 * data.length) / imgEpdBuf.length).toFixed(1)}%)`
+      );
+      $("#btnSendImg").disabled = true;
+      setProg(0, data.length);
+      try {
+        const p1 = waitReply(3000);
+        await sendRaw(utf8Encode(rle ? "!IMG 1" : "!IMG"));
+        const r1 = await p1;
+        if (!r1 || !r1.includes("OK")) {
+          count("!IMG", false, r1);
+          log("ERR", "进入图片模式失败: " + (r1 || "无回执"));
+          return;
+        }
+        count("!IMG", true, r1);
+        const chunk = Math.min(
+          194,
+          Math.max(1, parseInt($("#inChunk").value, 10) || 180)
+        );
+        const total = Math.ceil(data.length / chunk);
+        const t0 = Date.now();
+        for (let off = 0, seq = 0; off < data.length; off += chunk, seq++) {
+          if (!BLE.rx) {
+            log("ERR", "图片传输中断（连接断开）");
+            count("图片传输", false, "断连");
+            return;
+          }
+          const n = Math.min(chunk, data.length - off);
+          const frame = new Uint8Array(3 + n);
+          frame[0] = 0xaa;
+          frame[1] = (seq >> 8) & 0xff;
+          frame[2] = seq & 0xff;
+          frame.set(data.subarray(off, off + n), 3);
+          await sendRaw(frame);
+          await sleep(10);
+          setProg(off + n, data.length);
+          if (seq % 10 === 0) log("INFO", `[IMG] ${off + n}/${data.length} 字节`);
+        }
+        setProg(data.length, data.length);
+        log(
+          "INFO",
+          `[IMG] 发送完毕 ${total} 帧，耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`
+        );
+        const p2 = waitReply(3000);
+        await sendRaw(utf8Encode("!IMGEND"));
+        const r2 = await p2;
+        count("!IMGEND", matchReply(r2, "OK:IMGEND"), r2);
+        if (r2 && r2.includes("OK")) log("INFO", "背景图已保存并刷新（掉电不丢）");
+      } finally {
+        $("#btnSendImg").disabled = !imgEpdBuf;
+      }
+    }
+
+    /* =========================================================================
+     * M6 自动测试序列 (镜像 Node test_ble_qr.js runTests)
+     * ========================================================================= */
+    function buildAutoCases() {
+      const sync = "!SYNC " + nowYMDHMS();
+      const d = new Date();
+      d.setMinutes(d.getMinutes() + 1);
+      const alarmMin = pad(d.getHours()) + pad(d.getMinutes());
+      return [
+        { name: "会话认证", cmd: "__AUTH__", delay: 500 },
+        { name: "同步 RTC 时间", cmd: sync, delay: 2500, expect: "OK:SYNC" },
+        { name: "明文时间二维码", cmd: "!TIME", delay: 2500, expect: "OK:TIME" },
+        { name: "加密时间二维码", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "文本二维码", cmd: "HELLO 123", delay: 2500 },
+        { name: "重显上一帧", cmd: "!R", delay: 2500, expect: /OK:R/ },
+        {
+          name: "保存业务文本(URL)",
+          cmd: "!TEXT http://www.baidu.com",
+          delay: 2000,
+          expect: "OK:TEXT",
+        },
+        {
+          name: "加密时间+文本组合(?t=)",
+          cmd: "!ETIME",
+          delay: 2500,
+          expect: "OK:ETIME",
+        },
+        { name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT" },
+        {
+          name: "文本带参再保存(&t=)",
+          cmd: "!TEXT http://x.com/api?ver=1",
+          delay: 2000,
+          expect: "OK:TEXT",
+        },
+        { name: "组合刷新(检测&分隔)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT" },
+        { name: "查询AES密钥(当前)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
+        {
+          name: "错误密钥加密(应拒绝)",
+          cmd:
+            "!AESKEY " +
+            ecbHex(
+              "00000000000000000000000000000000",
+              "112233445566778899AABBCCDDEEFF00"
+            ),
+          delay: 1200,
+          expect: /ERR/,
+        },
+        {
+          name: "加密更新AES密钥",
+          cmd: "!AESKEY " + ecbHex(DEFAULT_KEY_HEX, "112233445566778899AABBCCDDEEFF00"),
+          delay: 1500,
+          expect: "OK:AESKEY",
+        },
+        { name: "查询AES密钥(新)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
+        {
+          name: "恢复默认密钥(加密)",
+          cmd: "!AESKEY " + ecbHex("112233445566778899AABBCCDDEEFF00", DEFAULT_KEY_HEX),
+          delay: 1500,
+          expect: "OK:AESKEY",
+        },
+        { name: "查询加密模式(当前)", cmd: "!MODE", delay: 1000, expect: /OK:MODE/ },
+        {
+          name: "切到模式1(整体加密)",
+          cmd: "!MODE 1",
+          delay: 1000,
+          expect: "OK:MODE 1",
+        },
+        { name: "全加密二维码(模式B)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "查询加密模式(应为1)", cmd: "!MODE", delay: 1000, expect: "OK:MODE 1" },
+        {
+          name: "切回模式0(仅时间加密)",
+          cmd: "!MODE 0",
+          delay: 1000,
+          expect: "OK:MODE 0",
+        },
+        { name: "模式A二维码(恢复)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "报警状态诊断", cmd: "!ALARMSTAT", delay: 1200, expect: /^A=/ },
+        {
+          name: "设单点报警(下一分钟)",
+          cmd: "!ALARM " + alarmMin,
+          delay: 1500,
+          expect: "OK:ALARM",
+        },
+        {
+          name: "立即报警测试(刷新加密时间)",
+          cmd: "!ALARMTEST",
+          delay: 3500,
+          expect: "OK:TEST",
+        },
+        {
+          name: "设1分钟周期刷新(加密)",
+          cmd: "!PERIOD 1",
+          delay: 3500,
+          expect: "OK:PERIOD",
+        },
+        { name: "关闭周期", cmd: "!PERIOD 0", delay: 1500, expect: "OK:PERIOD" },
+        { name: "关闭报警", cmd: "!ALARM OFF", delay: 1500, expect: "OK:ALARM" },
+        { name: "LED 查询", cmd: "!LED", delay: 1200, expect: /^LED:/ },
+        { name: "LED 亮", cmd: "!LED 1", delay: 1200, expect: "OK:LED" },
+        { name: "LED 灭", cmd: "!LED 0", delay: 1200, expect: "OK:LED" },
+        { name: "LED 闪烁3次", cmd: "!LED 3", delay: 2500, expect: "OK:LED" },
+        { name: "电池电量查询", cmd: "!BATT", delay: 1200, expect: /^BATT:/ },
+        { name: "MAC 地址查询", cmd: "!MAC", delay: 1200, expect: /^MAC:/ },
+        { name: "清屏", cmd: "!CLR", delay: 2500, expect: "OK:CLR" },
+      ];
+    }
+    async function runAuto() {
+      const loops = parseInt($("#inLoops").value, 10) || 1;
+      BLE.aborted = false;
+      $("#btnAbort").disabled = false;
+      $("#btnRunAuto").disabled = true;
+      const p0 = passCount,
+        f0 = failCount;
+      try {
+        for (let i = 1; i <= loops; i++) {
+          if (BLE.aborted) break;
+          log("INFO", `===== 第 ${i}/${loops} 轮 =====`);
+          for (const c of buildAutoCases()) {
+            if (BLE.aborted) break;
+            if (!BLE.rx) {
+              log("ERR", "连接已断开，测试中止");
+              BLE.aborted = true;
+              break;
+            }
+            log("TEST", c.name);
+            try {
+              if (c.cmd === "__AUTH__") {
+                const ok = await ensureAuth();
+                count("会话认证", ok, ok ? "OK:AUTH" : "认证失败");
+              } else {
+                const r = await sendCmd(c.cmd, {
+                  auth: "auto",
+                  timeout: 4000,
+                  expect: c.expect,
+                });
+                if (r.reply && /^A=/.test(r.reply))
+                  log("INFO", "状态: " + parseAlarmStat(r.reply));
+              }
+            } catch (e) {
+              log("ERR", e.message);
+              count(c.name, false, e.message);
+            }
+            if (c.delay) await sleep(c.delay);
+          }
+        }
+      } finally {
+        $("#btnAbort").disabled = true;
+        $("#btnRunAuto").disabled = false;
+        log(
+          "INFO",
+          `[SUMMARY] 本轮通过 ${passCount - p0} / 失败 ${failCount - f0} (全局 ${passCount}/${failCount})`
+        );
+      }
+    }
+
+    /* =========================================================================
+     * M7 离线自检 (无需设备)
+     * ========================================================================= */
+    function selftestAes() {
+      try {
+        const k1 = hexToBytes("000102030405060708090a0b0c0d0e0f");
+        const ct = ecbEncrypt(k1, hexToBytes("00112233445566778899aabbccddeeff"));
+        count(
+          "AES-ECB FIPS-197 加密",
+          bytesToHex(ct) === "69c4e0d86a7b0430d8cdb78070b4c55a",
+          bytesToHex(ct)
+        );
+        const pt = ecbDecrypt(k1, ct);
+        count(
+          "AES-ECB 解密还原",
+          bytesToHex(pt) === "00112233445566778899aabbccddeeff"
+        );
+        const multi = new Uint8Array(48);
+        for (let i = 0; i < 48; i++) multi[i] = (i * 37 + 11) & 0xff;
+        const enc = ecbEncrypt(k1, multi),
+          dec = ecbDecrypt(k1, enc);
+        count("AES-ECB 多块往返", bytesToHex(dec) === bytesToHex(multi));
+        const k2 = hexToBytes("2b7e151628aed2a6abf7158809cf4f3c");
+        const iv = hexToBytes("000102030405060708090a0b0c0d0e0f");
+        const p12 = hexToBytes(
+          "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51"
+        );
+        const c12 = cbcEncrypt(k2, iv, p12);
+        count(
+          "AES-CBC 向量(2块链式)",
+          bytesToHex(c12) ===
+          "7649abac8119b246cee98e9b12e9197d5086cb9b507219ee95db113a917678b2",
+          bytesToHex(c12)
+        );
+        const d12 = cbcDecrypt(k2, iv, c12);
+        count("AES-CBC 解密还原", bytesToHex(d12) === bytesToHex(p12));
+      } catch (e) {
+        count("AES 自检异常", false, e.message);
+      }
+    }
+    function selftestRle() {
+      const cases = [];
+      cases.push(["全0xFF", new Uint8Array(EPD_BUF).fill(0xff)]);
+      cases.push(["全0x00", new Uint8Array(EPD_BUF).fill(0x00)]);
+      const c = new Uint8Array(EPD_BUF);
+      let seed = 12345;
+      for (let i = 0; i < EPD_BUF; i++) {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        c[i] = (seed >> 16) & 0xff;
+      }
+      for (let k = 0; k < 40; k++) {
+        // 注入 3~128 长游程
+        const len = 3 + ((k * 7) % 126);
+        c.fill(
+          (k * 13) & 0xff,
+          (k * 113) % (EPD_BUF - len),
+          ((k * 113) % (EPD_BUF - len)) + len
+        );
+      }
+      cases.push(["伪随机+游程", c]);
+      for (const [name, buf] of cases) {
+        try {
+          const enc = rleEncode(buf),
+            dec = rleDecode(enc);
+          count(
+            "RLE 往返 " + name,
+            bytesToHex(dec) === bytesToHex(buf),
+            `${buf.length}B→${enc.length}B(${((100 * enc.length) / buf.length).toFixed(1)}%)`
+          );
+        } catch (e) {
+          count("RLE 往返 " + name, false, e.message);
+        }
+      }
+      const h1 = rleEncode(Uint8Array.from([0x41, 0x42]));
+      count(
+        "RLE 手算用例 [41 42]→[01 41 42]",
+        bytesToHex(h1) === "014142",
+        bytesToHex(h1)
+      );
+      const h2 = rleEncode(Uint8Array.from([0xaa, 0xaa, 0xaa]));
+      count("RLE 手算用例 3×AA→[82 AA]", bytesToHex(h2) === "82aa", bytesToHex(h2));
+      const h3 = rleEncode(new Uint8Array(128).fill(0xaa));
+      count("RLE 手算用例 128×AA→[FF AA]", bytesToHex(h3) === "ffaa", bytesToHex(h3));
+    }
+    function selftestMode() {
+      const key = DEFAULT_KEY_HEX;
+      const d = new Date(2026, 8, 6, 12, 34, 56); // 2026-09-06 12:34:56 周日
+      const pt16 = packModeATime(d, 7);
+      const qr = modeAEncode(key, "http://www.abc.com", pt16);
+      const dec = modeADecode(key, qr);
+      count(
+        "模式A 编码→解码",
+        dec.ok &&
+        dec.time === "2026-09-06 12:34:56" &&
+        dec.week === 0 &&
+        dec.nonce === 7,
+        dec.ok ? dec.time + " 周" + dec.week + " nonce=" + dec.nonce : dec.error
+      );
+      const bad = modeADecode("ffffffffffffffffffffffffffffffff", qr);
+      count("模式A 错误密钥检测", !bad.ok && /魔数/.test(bad.error || ""), bad.error);
+      const amp = modeAEncode(key, "http://x.com/api?ver=1", pt16);
+      count("模式A 含?时用&t=", /&t=/.test(amp), amp);
+      try {
+        const b = modeBEncode(key, "http://www.abc.com/api?ver=1", "260906123456");
+        const bd = modeBDecode(key, b.hex);
+        count(
+          "模式B 编码→解码",
+          bd.ok && bd.payload === b.payload,
+          bd.ok ? bd.payload : bd.error
+        );
+        const b2 = modeBEncode(key, "", "260906123456");
+        const bd2 = modeBDecode(key, b2.hex);
+        count(
+          "模式B 纯时间往返",
+          bd2.ok && bd2.payload === "260906123456",
+          bd2.payload
+        );
+      } catch (e) {
+        count("模式B 自检异常", false, e.message);
+      }
+    }
+    async function selftestImg() {
+      try {
+        const bmp = await createImageBitmap(makeTestImage());
+        const buf = await imageToEpd(bmp, 128);
+        count("图片 1bpp 尺寸", buf.length === EPD_BUF, buf.length + "B");
+        let ones = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = buf[i];
+          ones +=
+            (v & 1) +
+            ((v >> 1) & 1) +
+            ((v >> 2) & 1) +
+            ((v >> 3) & 1) +
+            ((v >> 4) & 1) +
+            ((v >> 5) & 1) +
+            ((v >> 6) & 1) +
+            ((v >> 7) & 1);
+        }
+        count(
+          "图片 1bpp 内容(非全黑非全白)",
+          ones > 0 && ones < EPD_BUF * 8,
+          `${ones}/${EPD_BUF * 8} 白点`
+        );
+        const enc = rleEncode(buf),
+          dec = rleDecode(enc);
+        count(
+          "图片 RLE 往返",
+          bytesToHex(dec) === bytesToHex(buf),
+          `压缩率 ${((100 * enc.length) / buf.length).toFixed(1)}%`
+        );
+        drawPreview(buf, $("#previewBpp"));
+        $("#imgStats").textContent =
+          `原始 ${EPD_BUF}B → RLE ${enc.length}B (${((100 * enc.length) / EPD_BUF).toFixed(1)}%)`;
+      } catch (e) {
+        count("图片管线异常", false, e.message);
+      }
+    }
+
+    /* =========================================================================
+     * M8 按钮绑定与初始化
+     * ========================================================================= */
+    function bindCmd(id, fn) {
+      $(id).addEventListener("click", () =>
+        enqueue(async () => {
+          try {
+            await fn();
+          } catch (e) {
+            log("ERR", e.message);
+          }
+        })
+      );
+    }
+    /* ---- 面板 2: 密钥/认证 ---- */
+    bindCmd("#btnAesQuery", () => sendCmd("!AESKEY", { expect: /OK:AESKEY/ }));
+    bindCmd("#btnDoAuth", async () => {
+      count("会话认证", await ensureAuth(), BLE.authDone ? "OK:AUTH" : "");
+    });
+    bindCmd("#btnAesUpdate", async () => {
+      const newKey = String($("#inNewKey").value || "")
+        .toLowerCase()
+        .replace(/[^0-9a-f]/g, "");
+      if (newKey.length !== 32) {
+        log("ERR", "新密钥必须是 32 位 hex");
+        return;
+      }
+      await ensureAuth();
+      const p = waitReply(3000);
+      await sendRaw(utf8Encode("!AESKEY"));
+      const r = await p;
+      if (!r || !r.toUpperCase().startsWith("OK:AESKEY ")) {
+        log("ERR", "无法获取当前密钥: " + (r || "无回执"));
+        return;
+      }
+      const curKey = r.substring("OK:AESKEY ".length).trim().toLowerCase();
+      const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newKey)));
+      log("INFO", "更新密文: " + ct);
+      await sendCmd("!AESKEY " + ct, { expect: "OK:AESKEY" });
+    });
+    bindCmd("#btnAuthPass", async () => {
+      const newPass = String($("#inNewPass").value || "")
+        .toLowerCase()
+        .replace(/[^0-9a-f]/g, "");
+      if (newPass.length !== 32) {
+        log("ERR", "新密码必须是 32 位 hex");
+        return;
+      }
+      const ok = await ensureAuth();
+      if (!ok) {
+        log("ERR", "请先完成会话认证再更新密码");
+        return;
+      }
+      const p = waitReply(3000);
+      await sendRaw(utf8Encode("!AESKEY"));
+      const r = await p;
+      if (!r || !r.toUpperCase().startsWith("OK:AESKEY ")) {
+        log("ERR", "无法获取当前密钥");
+        return;
+      }
+      const curKey = r.substring("OK:AESKEY ".length).trim().toLowerCase();
+      const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newPass)));
+      log("INFO", "新密码密文: " + ct);
+      await sendCmd("!AUTHPASS " + ct, { expect: "OK:AUTHPASS" });
+    });
+    /* ---- 面板 3: 命令 ---- */
+    bindCmd("#btnSync", () =>
+      sendCmd("!SYNC " + nowYMDHMS(), { delayAfter: 2500, expect: "OK:SYNC" })
+    );
+    bindCmd("#btnTime", () =>
+      sendCmd("!TIME", { delayAfter: 2500, expect: "OK:TIME" })
+    );
+    bindCmd("#btnEtime", () =>
+      sendCmd("!ETIME", { delayAfter: 2500, expect: "OK:ETIME" })
+    );
+    bindCmd("#btnTextQR", () => {
+      const v = $("#inText").value.trim();
+      if (!v) {
+        log("ERR", "请输入文本内容");
+        return;
+      }
+      return sendCmd(v, { delayAfter: 2500 });
+    });
+    bindCmd("#btnTextSave", () =>
+      sendCmd("!TEXT " + $("#inText").value.trim(), {
+        delayAfter: 1500,
+        expect: "OK:TEXT",
+      })
+    );
+    bindCmd("#btnTextClear", () =>
+      sendCmd("!TEXT", { delayAfter: 1500, expect: "OK:TEXT" })
+    );
+    bindCmd("#btnRedisplay", () => sendCmd("!R", { delayAfter: 2500, expect: /OK:R/ }));
+    bindCmd("#btnClr", () => sendCmd("!CLR", { delayAfter: 2500, expect: "OK:CLR" }));
+    bindCmd("#btnSlp", () => sendCmd("!SLP", { delayAfter: 1000, expect: "OK:SLP" }));
+    bindCmd("#btnModeQ", () => sendCmd("!MODE", { expect: /OK:MODE/ }));
+    bindCmd("#btnMode0", () => sendCmd("!MODE 0", { expect: "OK:MODE 0" }));
+    bindCmd("#btnMode1", () => sendCmd("!MODE 1", { expect: "OK:MODE 1" }));
+    bindCmd("#btnAlarm", () => {
+      const v = $("#inAlarm").value.trim().toUpperCase();
+      if (!v) {
+        log("ERR", "请输入 mm / hhmm / OFF");
+        return;
+      }
+      return sendCmd("!ALARM " + v, { expect: /OK:ALARM|ERR:ALARM/ });
+    });
+    bindCmd("#btnAlarmTest", () =>
+      sendCmd("!ALARMTEST", { delayAfter: 3500, expect: "OK:TEST" })
+    );
+    bindCmd("#btnAlarmStat", async () => {
+      const r = await sendCmd("!ALARMSTAT", { expect: /^A=/ });
+      if (r.reply && /^A=/.test(r.reply))
+        log("INFO", "状态: " + parseAlarmStat(r.reply));
+    });
+    bindCmd("#btnPeriod", () => {
+      const v = $("#inPeriod").value.trim().toUpperCase();
+      if (!v) {
+        log("ERR", "请输入 1-255 / 0 / OFF");
+        return;
+      }
+      return sendCmd("!PERIOD " + v, { expect: /OK:PERIOD|ERR:PERIOD/ });
+    });
+    bindCmd("#btnLedQ", () => sendCmd("!LED", { expect: /^LED:/ }));
+    bindCmd("#btnLedOn", () => sendCmd("!LED 1", { expect: "OK:LED" }));
+    bindCmd("#btnLedOff", () => sendCmd("!LED 0", { expect: "OK:LED" }));
+    bindCmd("#btnLedBlink", () => {
+      const n = parseInt($("#inLedN").value, 10);
+      if (isNaN(n) || n < 2 || n > 20) {
+        log("ERR", "闪烁次数需为 2~20");
+        return;
+      }
+      return sendCmd("!LED " + n, { delayAfter: 2000, expect: "OK:LED" });
+    });
+    bindCmd("#btnBatt", () => sendCmd("!BATT", { expect: /^BATT:/ }));
+    bindCmd("#btnMacQ", () => sendCmd("!MAC", { expect: /^MAC:/ }));
+    bindCmd("#btnMacSet", () => {
+      const v = $("#inMac").value.replace(/[:\-\s]/g, "");
+      if (!/^[0-9A-Fa-f]{12}$/.test(v)) {
+        log("ERR", "MAC 格式错误 (AA:BB:CC:DD:EE:FF 或 AABBCCDDEEFF)");
+        return;
+      }
+      if (
+        !confirm("设置新 MAC: " + $("#inMac").value + " ?\n写入 Flash 后需重启生效。")
+      )
+        return;
+      const formatted = v.match(/.{2}/g).join(":").toUpperCase();
+      return sendCmd("!MAC " + formatted, { expect: "OK:MAC" }).then((r) => {
+        if (r.ok) log("INFO", "MAC 已写入 Flash，需重启生效（!RBT 或断电）");
+      });
+    });
+    bindCmd("#btnRbt", async () => {
+      if (!confirm("确定要软件复位设备吗？复位后设备将断开连接并进入深睡。")) return;
+      if (!BLE.rx) {
+        log("ERR", "请先连接设备");
+        return;
+      }
+      await ensureAuth();
+      let dc = false;
+      const onDc = () => {
+        dc = true;
+      };
+      BLE.device.addEventListener("gattserverdisconnected", onDc);
+      const p = waitReply(4000);
+      await sendRaw(utf8Encode("!RBT"));
+      const r = await p;
+      await sleep(800);
+      BLE.device.removeEventListener("gattserverdisconnected", onDc);
+      const ok = r === "OK:RBT" || dc || !BLE.rx; // 看门狗复位可能先于 notify 断连
+      count("!RBT", ok, r || (dc ? "(断连确认复位)" : ""));
+      if (ok)
+        log("INFO", "复位已触发：设备重启后进入深睡（重新上电/磁铁唤醒后可再次连接）");
+    });
+    bindCmd("#btnCustom", () => {
+      const v = $("#inCustom").value.trim();
+      if (!v) {
+        log("ERR", "请输入命令");
+        return;
+      }
+      return sendCmd(v, { timeout: 5000, delayAfter: 1500 });
+    });
+    /* ---- 面板 4: 图片 ---- */
+    $("#inFile").addEventListener("change", async () => {
+      const f = $("#inFile").files[0];
+      if (!f) return;
+      try {
+        await loadImageFile(f);
+        log("INFO", `已加载: ${f.name}`);
+      } catch (e) {
+        log("ERR", "图片加载失败: " + e.message);
+      }
+    });
+    $("#btnTestImg").addEventListener("click", async () => {
+      try {
+        imgBitmap = await createImageBitmap(makeTestImage());
+        $("#inThreshold").disabled = false;
+        drawRawPreview(imgBitmap, $("#previewRaw"));
+        await refreshEpdFromBitmap();
+        updateImgUi();
+        log("INFO", "已生成内置测试图（白底黑框+对角条纹+中央棋盘格）");
+      } catch (e) {
+        log("ERR", e.message);
+      }
+    });
+    $("#inThreshold").addEventListener("change", async () => {
+      if (!imgBitmap) return;
+      try {
+        await refreshEpdFromBitmap();
+        updateImgUi();
+      } catch (e) {
+        log("ERR", e.message);
+      }
+    });
+    bindCmd("#btnSendImg", sendImage);
+    /* ---- 面板 5: 加密工具 ---- */
+    bindCmd("#btnEcb", () => {
+      const key = hexToBytes($("#ecbKey").value);
+      const inBytes = hexToBytes($("#ecbIn").value);
+      const out =
+        $("#ecbMode").value === "enc"
+          ? ecbEncrypt(key, inBytes)
+          : ecbDecrypt(key, inBytes);
+      $("#ecbOut").value = bytesToHex(out);
+    });
+    bindCmd("#btnCbc", () => {
+      const key = hexToBytes($("#cbcKey").value);
+      const iv = hexToBytes($("#cbcIv").value);
+      const inBytes = hexToBytes($("#cbcIn").value);
+      const out =
+        $("#cbcMode").value === "enc"
+          ? cbcEncrypt(key, iv, inBytes)
+          : cbcDecrypt(key, iv, inBytes);
+      $("#cbcOut").value = bytesToHex(out);
+    });
+    const WEEK_CN = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    function resolveTime(inputId, nowChkId) {
+      // 时间: 自动当前 / 手动 YYMMDDHHMMSS
+      if ($(nowChkId).checked) return new Date();
+      const s = String($(inputId).value || "").trim();
+      if (!/^\d{12}$/.test(s))
+        throw new Error('时间需为 12 位 YYMMDDHHMMSS (或勾选"用当前时间")');
+      const d = new Date(
+        2000 + parseInt(s.slice(0, 2), 10),
+        parseInt(s.slice(2, 4), 10) - 1,
+        parseInt(s.slice(4, 6), 10),
+        parseInt(s.slice(6, 8), 10),
+        parseInt(s.slice(8, 10), 10),
+        parseInt(s.slice(10, 12), 10)
+      );
+      return d;
+    }
+    bindCmd("#btnmAEnc", () => {
+      const d = resolveTime("#mAtime", "#mAnow");
+      const pt16 = packModeATime(d, parseInt($("#mAnonce").value, 10) || 0);
+      const qr = modeAEncode($("#mAkey").value, $("#mAtxt").value.trim(), pt16);
+      const m = qr.match(/[?&]t=([0-9a-fA-F]{32})/);
+      $("#mAqr").value = qr;
+      $("#mAqrCt").value = m ? m[1] : "";
+    });
+    bindCmd("#btnmADec", () => {
+      const r = modeADecode($("#mAkey").value, $("#mADecIn").value);
+      $("#mAdecOut").value = r.ok
+        ? `${r.time} ${WEEK_CN[r.week]} nonce=${r.nonce} (魔数校验OK)`
+        : "错误: " + r.error;
+    });
+    bindCmd("#btnmBEnc", () => {
+      const d = resolveTime("#mBtime", "#mBnow");
+      const r = modeBEncode($("#mBkey").value, $("#mBtxt").value.trim(), nowYMDHMS(d));
+      $("#mBqr").value = r.hex;
+      $("#mBqrPayload").value = r.payload;
+      if (r.truncated) log("WARN", "文本超过 48 字符已自动截断");
+    });
+    bindCmd("#btnmBDec", () => {
+      const r = modeBDecode($("#mBkey").value, $("#mBDecIn").value);
+      $("#mBdecOut").value = r.ok
+        ? `payload=${r.payload}${r.time ? " 时间=" + r.time : ""}`
+        : "错误: " + r.error;
+    });
+    /* ---- 面板 6: 自动测试 ---- */
+    $("#btnRunAuto").addEventListener("click", () => enqueue(runAuto));
+    $("#btnAbort").addEventListener("click", () => {
+      BLE.aborted = true;
+      log("WARN", "已请求中断（当前步骤完成后停止）");
+    });
+    /* ---- 面板 7: 离线自检 ---- */
+    $("#btnSelfAes").addEventListener("click", selftestAes);
+    $("#btnSelfRle").addEventListener("click", selftestRle);
+    $("#btnSelfMode").addEventListener("click", selftestMode);
+    $("#btnSelfImg").addEventListener("click", () => selftestImg());
+    $("#btnSelfAll").addEventListener("click", () => {
+      selftestAes();
+      selftestRle();
+      selftestMode();
+      selftestImg();
+    });
+    /* ---- 面板 8: 日志 ---- */
+    $("#btnLogClear").addEventListener("click", () => {
+      $("#logBox").innerHTML = "";
+    });
+    $("#btnLogCopy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("#logBox").innerText);
+        log("INFO", "日志已复制到剪贴板");
+      } catch (e) {
+        log("ERR", "复制失败: " + e.message);
+      }
+    });
+    /* ---- 顶栏 ---- */
+    $("#btnConnect").addEventListener("click", () => enqueue(connect));
+    $("#btnDisconnect").addEventListener("click", disconnect);
+    $("#inCustom").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("#btnCustom").click();
+    });
+
+    /* ---- localStorage 持久化 (http 下可用, file:// 静默跳过) ---- */
+    function lsGet(k, d) {
+      try {
+        const v = localStorage.getItem("qreink_" + k);
+        return v === null ? d : v;
+      } catch (e) {
+        return d;
+      }
+    }
+    function lsSet(k, v) {
+      try {
+        localStorage.setItem("qreink_" + k, v);
+      } catch (e) { }
+    }
+    [
+      ["#inKey", "key"],
+      ["#inPassword", "password"],
+      ["#inNewKey", "newkey"],
+      ["#inNewPass", "newpass"],
+      ["#inChunk", "chunk"],
+      ["#inThreshold", "threshold"],
+      ["#inText", "text"],
+      ["#inAlarm", "alarm"],
+      ["#inPeriod", "period"],
+      ["#inLedN", "ledn"],
+      ["#inMac", "mac"],
+      ["#inCustom", "custom"],
+      ["#ecbKey", "ecbkey"],
+      ["#cbcKey", "cbckey"],
+      ["#cbcIv", "cbciv"],
+      ["#mAkey", "makey"],
+      ["#mBkey", "mbkey"],
+      ["#mAtxt", "matxt"],
+      ["#mBtxt", "mbtxt"],
+      ["#inLoops", "loops"],
+    ].forEach(([id, k]) => {
+      const el = $(id);
+      el.value = lsGet(k, el.value);
+      el.addEventListener("change", () => lsSet(k, el.value));
+    });
+
+    /* ---- 启动 ---- */
+    (function boot() {
+      if (!window.isSecureContext || !navigator.bluetooth) {
+        const w = $("#envWarn");
+        w.hidden = false;
+        w.textContent =
+          location.protocol === "file:"
+            ? '⚠ 当前以 file:// 打开，Web Bluetooth 不可用。请在本目录运行 "python -m http.server 8000"，然后打开 http://127.0.0.1:8000/QR-EINK_test.html'
+            : "⚠ 当前环境不支持 Web Bluetooth（需 Chrome/Edge，且为 https 或 http://localhost）";
+      }
+      log(
+        "INFO",
+        "页面已就绪。文档 §4/§5/§6 测试页 — 先连接设备 (设备需处于 30 秒广播窗口)。"
+      );
+      /* 加载时静默自检 AES 核心 (FIPS-197 向量), 加密异常立即暴露 */
+      try {
+        const ct = ecbEncrypt(
+          hexToBytes("000102030405060708090a0b0c0d0e0f"),
+          hexToBytes("00112233445566778899aabbccddeeff")
+        );
+        if (bytesToHex(ct) === "69c4e0d86a7b0430d8cdb78070b4c55a")
+          log("INFO", "[自检] AES 核心 OK (FIPS-197 向量通过)");
+        else log("ERR", "[自检] AES 核心自检失败！请运行「离线自检」查看详情");
+      } catch (e) {
+        log("ERR", "[自检] AES 核心异常: " + e.message);
+      }
+    })();
+  </script>
+</body>
+
+</html>
