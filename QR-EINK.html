@@ -1080,7 +1080,7 @@
       <b id="statFail" class="c-fail">0</b>
     </span>
     <span class="sp"></span>
-    <span class="cnt">§4 BLE 接口 · §5 命令协议 · §6 加密方案</span>
+    <span class="cnt">§2 BLE 接口 · §3 命令协议 · §4 加密方案</span>
   </header>
 
   <div id="envWarn" class="envwarn" hidden></div>
@@ -1088,7 +1088,7 @@
   <main class="grid">
     <!-- ======================= 面板 1: 连接与设备信息 ======================= -->
     <details id="pnlConn" class="s12 pnl1" open>
-      <summary><span class="pnum">①</span>连接与设备信息<span class="stag">第 4 章 BLE 通信接口</span></summary>
+      <summary><span class="pnum">①</span>连接与设备信息<span class="stag">第 2 章 BLE 通信接口</span></summary>
       <div class="warn-note">
         设备上电/磁铁唤醒后仅广播
         <b>30 秒</b>
@@ -1208,7 +1208,7 @@
 
     <!-- ======================= 面板 2: 密钥 / 密码与认证 ======================= -->
     <details id="pnlKey" class="s6 pnl2" open>
-      <summary><span class="pnum">②</span>密钥 / 密码与认证<span class="stag">第 6 章</span></summary>
+      <summary><span class="pnum">②</span>密钥 / 密码与认证<span class="stag">第 4 章</span></summary>
       <fieldset>
         <legend>本地参数（仅用于计算密文，不明文传输）</legend>
         <div class="cmds">
@@ -1246,7 +1246,7 @@
 
     <!-- ======================= 面板 3: 命令面板 ======================= -->
     <details id="pnlCmd" class="s12 pnl3" open>
-      <summary><span class="pnum">③</span>命令面板<span class="stag">第 5 章 全部命令</span></summary>
+      <summary><span class="pnum">③</span>命令面板<span class="stag">第 3 章 全部命令</span></summary>
       <div class="fields">
         <fieldset class="g-time">
           <legend>时间 / 同步</legend>
@@ -1333,7 +1333,7 @@
 
     <!-- ======================= 面板 4: 图片传输 ======================= -->
     <details id="pnlImg" class="s7 pnl4" open>
-      <summary><span class="pnum">④</span>图片传输<span class="stag">第 5.2 节 !IMG / !IMG 1 RLE</span></summary>
+      <summary><span class="pnum">④</span>图片传输<span class="stag">第 3.2 节 !IMG / !IMG 1 RLE</span></summary>
       <div class="cmds">
         <input type="file" id="inFile" accept="image/*,.bin,.raw" />
         <button id="btnTestImg" class="sec">使用测试图</button>
@@ -1369,7 +1369,7 @@
 
     <!-- ======================= 面板 5: 加密工具 ======================= -->
     <details id="pnlCrypto" class="s12 pnl5" open>
-      <summary><span class="pnum">⑤</span>加密工具<span class="stag">第 6 章 · 纯离线可用</span></summary>
+      <summary><span class="pnum">⑤</span>加密工具<span class="stag">第 4 章 · 纯离线可用</span></summary>
       <fieldset>
         <legend>通用 AES-128 工具（ECB / CBC）</legend>
         <div class="imgrow">
@@ -1531,7 +1531,7 @@
 
     <!-- ======================= 面板 6: 自动测试序列 ======================= -->
     <details id="pnlAuto" class="s6 pnl6" open>
-      <summary><span class="pnum">⑥</span>自动测试序列<span class="stag">镜像 Node runTests</span></summary>
+      <summary><span class="pnum">⑥</span>自动测试序列<span class="stag">镜像 runTests</span></summary>
       <div class="cmds">
         <label>
           循环次数
@@ -1880,15 +1880,15 @@
       if (m) ctHex = m[1];
       ctHex = ctHex.replace(/\s+/g, "").toLowerCase();
       if (!/^[0-9a-f]{32}$/.test(ctHex))
-        return { ok: false, error: "未找到 32 位 hex 密文 (t= 参数)" };
+        return {ok: false, error: "未找到 32 位 hex 密文 (t= 参数)"};
       let pt;
       try {
         pt = ecbDecrypt(hexToBytes(keyHex), hexToBytes(ctHex));
       } catch (e) {
-        return { ok: false, error: e.message };
+        return {ok: false, error: e.message};
       }
       if (pt[8] !== 0x51 || pt[9] !== 0x52 || pt[10] !== 0x01)
-        return { ok: false, error: "魔数校验失败（密钥错误或非模式A密文）" };
+        return {ok: false, error: "魔数校验失败（密钥错误或非模式A密文）"};
       const yy = bcdToNum(pt[0]),
         mo = bcdToNum(pt[1]),
         dd = bcdToNum(pt[2]),
@@ -1932,24 +1932,24 @@
         .trim()
         .replace(/\s+/g, "");
       if (!/^[0-9a-fA-F]+$/.test(s))
-        return { ok: false, error: "输入需为纯 hex 字符串" };
+        return {ok: false, error: "输入需为纯 hex 字符串"};
       if (s.length % 32 !== 0)
-        return { ok: false, error: "hex 长度需为 16 字节的倍数" };
+        return {ok: false, error: "hex 长度需为 16 字节的倍数"};
       let frame;
       try {
         frame = cbcDecrypt(hexToBytes(keyHex), hexToBytes(IV_B_HEX), hexToBytes(s));
       } catch (e) {
-        return { ok: false, error: e.message };
+        return {ok: false, error: e.message};
       }
       const len = frame[0];
       if (len < 1 || len > frame.length - 1)
-        return { ok: false, error: `长度字段异常 (${len})，可能密钥错误` };
+        return {ok: false, error: `长度字段异常 (${len})，可能密钥错误`};
       const payload = utf8Decode(frame.subarray(1, 1 + len));
       const m = payload.match(/(?:^|[?&]t=)(\d{12})$/);
       let time = null;
       if (m)
         time = `20${m[1].slice(0, 2)}-${m[1].slice(2, 4)}-${m[1].slice(4, 6)} ${m[1].slice(6, 8)}:${m[1].slice(8, 10)}:${m[1].slice(10, 12)}`;
-      return { ok: true, payload, time };
+      return {ok: true, payload, time};
     }
 
     /* ---------------- RLE 压缩 (与设备 img_rle_feed 配套, 逐字节等价移植 Node 版) ----------------
@@ -2144,7 +2144,7 @@
       if (BLE.pending.length) {
         const item = BLE.pending.shift();
         if (text.length >= 60) {
-          contItem = { acc: text };
+          contItem = {acc: text};
           setTimeout(() => {
             const acc = contItem ? contItem.acc : text; // 期间到达的续帧已累积进 contItem.acc
             contItem = null;
@@ -2160,7 +2160,7 @@
       try {
         setConnState("connecting");
         const device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: "QR-EINK" }],
+          filters: [{namePrefix: "QR-EINK"}],
           optionalServices: [SVCF],
         });
         device.addEventListener("gattserverdisconnected", onDisconnected);
@@ -2303,7 +2303,7 @@
       } = opts || {};
       if (!BLE.rx) {
         log("ERR", "请先连接设备（顶栏点击「连接设备」）");
-        return { reply: null, ok: false };
+        return {reply: null, ok: false};
       }
       if (auth === "auto" && !isReadOnly(cmd)) await ensureAuth();
       const p = waitReply(timeout);
@@ -2322,7 +2322,7 @@
       const ok = matchReply(reply, expect);
       count(cmd, ok, reply);
       if (delayAfter) await sleep(delayAfter);
-      return { reply, ok };
+      return {reply, ok};
     }
     function parseAlarmStat(s) {
       // A=1 AH=14 AM=30 P=0 PM=00 M=1 K=1 T=24 -> 中文
@@ -2562,12 +2562,12 @@
       d.setMinutes(d.getMinutes() + 1);
       const alarmMin = pad(d.getHours()) + pad(d.getMinutes());
       return [
-        { name: "会话认证", cmd: "__AUTH__", delay: 500 },
-        { name: "同步 RTC 时间", cmd: sync, delay: 2500, expect: "OK:SYNC" },
-        { name: "明文时间二维码", cmd: "!TIME", delay: 2500, expect: "OK:TIME" },
-        { name: "加密时间二维码", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
-        { name: "文本二维码", cmd: "HELLO 123", delay: 2500 },
-        { name: "重显上一帧", cmd: "!R", delay: 2500, expect: /OK:R/ },
+        {name: "会话认证", cmd: "__AUTH__", delay: 500},
+        {name: "同步 RTC 时间", cmd: sync, delay: 2500, expect: "OK:SYNC"},
+        {name: "明文时间二维码", cmd: "!TIME", delay: 2500, expect: "OK:TIME"},
+        {name: "加密时间二维码", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
+        {name: "文本二维码", cmd: "HELLO 123", delay: 2500},
+        {name: "重显上一帧", cmd: "!R", delay: 2500, expect: /OK:R/},
         {
           name: "保存业务文本(URL)",
           cmd: "!TEXT http://www.baidu.com",
@@ -2580,16 +2580,16 @@
           delay: 2500,
           expect: "OK:ETIME",
         },
-        { name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT" },
+        {name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT"},
         {
           name: "文本带参再保存(&t=)",
           cmd: "!TEXT http://x.com/api?ver=1",
           delay: 2000,
           expect: "OK:TEXT",
         },
-        { name: "组合刷新(检测&分隔)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
-        { name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT" },
-        { name: "查询AES密钥(当前)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
+        {name: "组合刷新(检测&分隔)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
+        {name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT"},
+        {name: "查询AES密钥(当前)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/},
         {
           name: "错误密钥加密(应拒绝)",
           cmd:
@@ -2607,30 +2607,30 @@
           delay: 1500,
           expect: "OK:AESKEY",
         },
-        { name: "查询AES密钥(新)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
+        {name: "查询AES密钥(新)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/},
         {
           name: "恢复默认密钥(加密)",
           cmd: "!AESKEY " + ecbHex("112233445566778899AABBCCDDEEFF00", DEFAULT_KEY_HEX),
           delay: 1500,
           expect: "OK:AESKEY",
         },
-        { name: "查询加密模式(当前)", cmd: "!MODE", delay: 1000, expect: /OK:MODE/ },
+        {name: "查询加密模式(当前)", cmd: "!MODE", delay: 1000, expect: /OK:MODE/},
         {
           name: "切到模式1(整体加密)",
           cmd: "!MODE 1",
           delay: 1000,
           expect: "OK:MODE 1",
         },
-        { name: "全加密二维码(模式B)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
-        { name: "查询加密模式(应为1)", cmd: "!MODE", delay: 1000, expect: "OK:MODE 1" },
+        {name: "全加密二维码(模式B)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
+        {name: "查询加密模式(应为1)", cmd: "!MODE", delay: 1000, expect: "OK:MODE 1"},
         {
           name: "切回模式0(仅时间加密)",
           cmd: "!MODE 0",
           delay: 1000,
           expect: "OK:MODE 0",
         },
-        { name: "模式A二维码(恢复)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
-        { name: "报警状态诊断", cmd: "!ALARMSTAT", delay: 1200, expect: /^A=/ },
+        {name: "模式A二维码(恢复)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
+        {name: "报警状态诊断", cmd: "!ALARMSTAT", delay: 1200, expect: /^A=/},
         {
           name: "设单点报警(下一分钟)",
           cmd: "!ALARM " + alarmMin,
@@ -2649,15 +2649,15 @@
           delay: 3500,
           expect: "OK:PERIOD",
         },
-        { name: "关闭周期", cmd: "!PERIOD 0", delay: 1500, expect: "OK:PERIOD" },
-        { name: "关闭报警", cmd: "!ALARM OFF", delay: 1500, expect: "OK:ALARM" },
-        { name: "LED 查询", cmd: "!LED", delay: 1200, expect: /^LED:/ },
-        { name: "LED 亮", cmd: "!LED 1", delay: 1200, expect: "OK:LED" },
-        { name: "LED 灭", cmd: "!LED 0", delay: 1200, expect: "OK:LED" },
-        { name: "LED 闪烁3次", cmd: "!LED 3", delay: 2500, expect: "OK:LED" },
-        { name: "电池电量查询", cmd: "!BATT", delay: 1200, expect: /^BATT:/ },
-        { name: "MAC 地址查询", cmd: "!MAC", delay: 1200, expect: /^MAC:/ },
-        { name: "清屏", cmd: "!CLR", delay: 2500, expect: "OK:CLR" },
+        {name: "关闭周期", cmd: "!PERIOD 0", delay: 1500, expect: "OK:PERIOD"},
+        {name: "关闭报警", cmd: "!ALARM OFF", delay: 1500, expect: "OK:ALARM"},
+        {name: "LED 查询", cmd: "!LED", delay: 1200, expect: /^LED:/},
+        {name: "LED 亮", cmd: "!LED 1", delay: 1200, expect: "OK:LED"},
+        {name: "LED 灭", cmd: "!LED 0", delay: 1200, expect: "OK:LED"},
+        {name: "LED 闪烁3次", cmd: "!LED 3", delay: 2500, expect: "OK:LED"},
+        {name: "电池电量查询", cmd: "!BATT", delay: 1200, expect: /^BATT:/},
+        {name: "MAC 地址查询", cmd: "!MAC", delay: 1200, expect: /^MAC:/},
+        {name: "清屏", cmd: "!CLR", delay: 2500, expect: "OK:CLR"},
       ];
     }
     async function runAuto() {
@@ -2883,7 +2883,7 @@
       );
     }
     /* ---- 面板 2: 密钥/认证 ---- */
-    bindCmd("#btnAesQuery", () => sendCmd("!AESKEY", { expect: /OK:AESKEY/ }));
+    bindCmd("#btnAesQuery", () => sendCmd("!AESKEY", {expect: /OK:AESKEY/}));
     bindCmd("#btnDoAuth", async () => {
       count("会话认证", await ensureAuth(), BLE.authDone ? "OK:AUTH" : "");
     });
@@ -2906,7 +2906,7 @@
       const curKey = r.substring("OK:AESKEY ".length).trim().toLowerCase();
       const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newKey)));
       log("INFO", "更新密文: " + ct);
-      await sendCmd("!AESKEY " + ct, { expect: "OK:AESKEY" });
+      await sendCmd("!AESKEY " + ct, {expect: "OK:AESKEY"});
     });
     bindCmd("#btnAuthPass", async () => {
       const newPass = String($("#inNewPass").value || "")
@@ -2931,17 +2931,17 @@
       const curKey = r.substring("OK:AESKEY ".length).trim().toLowerCase();
       const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newPass)));
       log("INFO", "新密码密文: " + ct);
-      await sendCmd("!AUTHPASS " + ct, { expect: "OK:AUTHPASS" });
+      await sendCmd("!AUTHPASS " + ct, {expect: "OK:AUTHPASS"});
     });
     /* ---- 面板 3: 命令 ---- */
     bindCmd("#btnSync", () =>
-      sendCmd("!SYNC " + nowYMDHMS(), { delayAfter: 2500, expect: "OK:SYNC" })
+      sendCmd("!SYNC " + nowYMDHMS(), {delayAfter: 2500, expect: "OK:SYNC"})
     );
     bindCmd("#btnTime", () =>
-      sendCmd("!TIME", { delayAfter: 2500, expect: "OK:TIME" })
+      sendCmd("!TIME", {delayAfter: 2500, expect: "OK:TIME"})
     );
     bindCmd("#btnEtime", () =>
-      sendCmd("!ETIME", { delayAfter: 2500, expect: "OK:ETIME" })
+      sendCmd("!ETIME", {delayAfter: 2500, expect: "OK:ETIME"})
     );
     bindCmd("#btnTextQR", () => {
       const v = $("#inText").value.trim();
@@ -2949,7 +2949,7 @@
         log("ERR", "请输入文本内容");
         return;
       }
-      return sendCmd(v, { delayAfter: 2500 });
+      return sendCmd(v, {delayAfter: 2500});
     });
     bindCmd("#btnTextSave", () =>
       sendCmd("!TEXT " + $("#inText").value.trim(), {
@@ -2958,27 +2958,27 @@
       })
     );
     bindCmd("#btnTextClear", () =>
-      sendCmd("!TEXT", { delayAfter: 1500, expect: "OK:TEXT" })
+      sendCmd("!TEXT", {delayAfter: 1500, expect: "OK:TEXT"})
     );
-    bindCmd("#btnRedisplay", () => sendCmd("!R", { delayAfter: 2500, expect: /OK:R/ }));
-    bindCmd("#btnClr", () => sendCmd("!CLR", { delayAfter: 2500, expect: "OK:CLR" }));
-    bindCmd("#btnSlp", () => sendCmd("!SLP", { delayAfter: 1000, expect: "OK:SLP" }));
-    bindCmd("#btnModeQ", () => sendCmd("!MODE", { expect: /OK:MODE/ }));
-    bindCmd("#btnMode0", () => sendCmd("!MODE 0", { expect: "OK:MODE 0" }));
-    bindCmd("#btnMode1", () => sendCmd("!MODE 1", { expect: "OK:MODE 1" }));
+    bindCmd("#btnRedisplay", () => sendCmd("!R", {delayAfter: 2500, expect: /OK:R/}));
+    bindCmd("#btnClr", () => sendCmd("!CLR", {delayAfter: 2500, expect: "OK:CLR"}));
+    bindCmd("#btnSlp", () => sendCmd("!SLP", {delayAfter: 1000, expect: "OK:SLP"}));
+    bindCmd("#btnModeQ", () => sendCmd("!MODE", {expect: /OK:MODE/}));
+    bindCmd("#btnMode0", () => sendCmd("!MODE 0", {expect: "OK:MODE 0"}));
+    bindCmd("#btnMode1", () => sendCmd("!MODE 1", {expect: "OK:MODE 1"}));
     bindCmd("#btnAlarm", () => {
       const v = $("#inAlarm").value.trim().toUpperCase();
       if (!v) {
         log("ERR", "请输入 mm / hhmm / OFF");
         return;
       }
-      return sendCmd("!ALARM " + v, { expect: /OK:ALARM|ERR:ALARM/ });
+      return sendCmd("!ALARM " + v, {expect: /OK:ALARM|ERR:ALARM/});
     });
     bindCmd("#btnAlarmTest", () =>
-      sendCmd("!ALARMTEST", { delayAfter: 3500, expect: "OK:TEST" })
+      sendCmd("!ALARMTEST", {delayAfter: 3500, expect: "OK:TEST"})
     );
     bindCmd("#btnAlarmStat", async () => {
-      const r = await sendCmd("!ALARMSTAT", { expect: /^A=/ });
+      const r = await sendCmd("!ALARMSTAT", {expect: /^A=/});
       if (r.reply && /^A=/.test(r.reply))
         log("INFO", "状态: " + parseAlarmStat(r.reply));
     });
@@ -2988,21 +2988,21 @@
         log("ERR", "请输入 1-255 / 0 / OFF");
         return;
       }
-      return sendCmd("!PERIOD " + v, { expect: /OK:PERIOD|ERR:PERIOD/ });
+      return sendCmd("!PERIOD " + v, {expect: /OK:PERIOD|ERR:PERIOD/});
     });
-    bindCmd("#btnLedQ", () => sendCmd("!LED", { expect: /^LED:/ }));
-    bindCmd("#btnLedOn", () => sendCmd("!LED 1", { expect: "OK:LED" }));
-    bindCmd("#btnLedOff", () => sendCmd("!LED 0", { expect: "OK:LED" }));
+    bindCmd("#btnLedQ", () => sendCmd("!LED", {expect: /^LED:/}));
+    bindCmd("#btnLedOn", () => sendCmd("!LED 1", {expect: "OK:LED"}));
+    bindCmd("#btnLedOff", () => sendCmd("!LED 0", {expect: "OK:LED"}));
     bindCmd("#btnLedBlink", () => {
       const n = parseInt($("#inLedN").value, 10);
       if (isNaN(n) || n < 2 || n > 20) {
         log("ERR", "闪烁次数需为 2~20");
         return;
       }
-      return sendCmd("!LED " + n, { delayAfter: 2000, expect: "OK:LED" });
+      return sendCmd("!LED " + n, {delayAfter: 2000, expect: "OK:LED"});
     });
-    bindCmd("#btnBatt", () => sendCmd("!BATT", { expect: /^BATT:/ }));
-    bindCmd("#btnMacQ", () => sendCmd("!MAC", { expect: /^MAC:/ }));
+    bindCmd("#btnBatt", () => sendCmd("!BATT", {expect: /^BATT:/}));
+    bindCmd("#btnMacQ", () => sendCmd("!MAC", {expect: /^MAC:/}));
     bindCmd("#btnMacSet", () => {
       const v = $("#inMac").value.replace(/[:\-\s]/g, "");
       if (!/^[0-9A-Fa-f]{12}$/.test(v)) {
@@ -3014,7 +3014,7 @@
       )
         return;
       const formatted = v.match(/.{2}/g).join(":").toUpperCase();
-      return sendCmd("!MAC " + formatted, { expect: "OK:MAC" }).then((r) => {
+      return sendCmd("!MAC " + formatted, {expect: "OK:MAC"}).then((r) => {
         if (r.ok) log("INFO", "MAC 已写入 Flash，需重启生效（!RBT 或断电）");
       });
     });
@@ -3046,7 +3046,7 @@
         log("ERR", "请输入命令");
         return;
       }
-      return sendCmd(v, { timeout: 5000, delayAfter: 1500 });
+      return sendCmd(v, {timeout: 5000, delayAfter: 1500});
     });
     /* ---- 面板 4: 图片 ---- */
     $("#inFile").addEventListener("change", async () => {
