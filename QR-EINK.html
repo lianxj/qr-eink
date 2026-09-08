@@ -21,6 +21,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>QR-EINK 墨水屏 · 页面测试程序</title>
+  <script>
+    // 提前应用主题, 避免刷新时亮色闪烁
+    (function () {
+      var mode = "auto";
+      try { mode = localStorage.getItem("qreink_theme") || "auto"; } catch (e) { }
+      var dark = mode === "dark" ||
+        (mode === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    })();
+  </script>
   <style>
     :root {
       --ok: #16a34a;
@@ -120,6 +130,22 @@
 
     #hdr .cnt b.c-fail {
       color: #f87171;
+    }
+
+    #themeSel {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      border-radius: 16px;
+      padding: 0 10px;
+      font-size: 12px;
+      height: 28px;
+      cursor: pointer;
+    }
+
+    #themeSel option {
+      color: #1f2937;
+      background: #fff;
     }
 
     .badge {
@@ -878,97 +904,95 @@
       }
     }
 
-    /* ---------- 深色模式 (跟随系统) ---------- */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0f141b;
-        --panel: #161d29;
-        --line: #2a3444;
-        --ink: #e2e8f0;
-        --ink2: #94a3b8;
-        --accent-soft: #1e2a44;
-        --amber-soft: #2b2113;
-        --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.35);
-      }
+    /* ---------- 深色模式 (由 JS 设置 html[data-theme="dark"], 支持手动切换/跟随系统) ---------- */
+    :root[data-theme="dark"] {
+      --bg: #0f141b;
+      --panel: #161d29;
+      --line: #2a3444;
+      --ink: #e2e8f0;
+      --ink2: #94a3b8;
+      --accent-soft: #1e2a44;
+      --amber-soft: #2b2113;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.35);
+    }
 
-      input,
-      select {
-        background: #10161f;
-        color: #e2e8f0;
-      }
+    :root[data-theme="dark"] input,
+    :root[data-theme="dark"] select {
+      background: #10161f;
+      color: #e2e8f0;
+    }
 
-      input[readonly] {
-        background: #0e141c;
-        color: #94a3b8;
-      }
+    :root[data-theme="dark"] input[readonly] {
+      background: #0e141c;
+      color: #94a3b8;
+    }
 
-      fieldset,
-      .cryptobox {
-        background: #121923;
-      }
+    :root[data-theme="dark"] fieldset,
+    :root[data-theme="dark"] .cryptobox {
+      background: #121923;
+    }
 
-      button.sec {
-        background: #1b2331;
-        color: #cbd5e1;
-      }
+    :root[data-theme="dark"] button.sec {
+      background: #1b2331;
+      color: #cbd5e1;
+    }
 
-      button.sec:hover:not(:disabled) {
-        background: #212b3d;
-        border-color: #3b4a63;
-      }
+    :root[data-theme="dark"] button.sec:hover:not(:disabled) {
+      background: #212b3d;
+      border-color: #3b4a63;
+    }
 
-      .stag {
-        background: #1b2331;
-      }
+    :root[data-theme="dark"] .stag {
+      background: #1b2331;
+    }
 
-      .inforow>span,
-      #imgStats {
-        background: #121923;
-      }
+    :root[data-theme="dark"] .inforow>span,
+    :root[data-theme="dark"] #imgStats {
+      background: #121923;
+    }
 
-      .warn-note {
-        background: #2b2113;
-        border-color: #7c5a10;
-        color: #fcd34d;
-      }
+    :root[data-theme="dark"] .warn-note {
+      background: #2b2113;
+      border-color: #7c5a10;
+      color: #fcd34d;
+    }
 
-      .envwarn {
-        background: #2b1414;
-        color: #fca5a5;
-        border-color: #5c1a1a;
-      }
+    :root[data-theme="dark"] .envwarn {
+      background: #2b1414;
+      color: #fca5a5;
+      border-color: #5c1a1a;
+    }
 
-      table.ref th,
-      table.ref tr:nth-child(even) td {
-        background: #121923;
-      }
+    :root[data-theme="dark"] table.ref th,
+    :root[data-theme="dark"] table.ref tr:nth-child(even) td {
+      background: #121923;
+    }
 
-      table.ref tr:hover td {
-        background: #1b2637;
-      }
+    :root[data-theme="dark"] table.ref tr:hover td {
+      background: #1b2637;
+    }
 
-      progress,
-      progress::-webkit-progress-bar {
-        background: #1b2331;
-      }
+    :root[data-theme="dark"] progress,
+    :root[data-theme="dark"] progress::-webkit-progress-bar {
+      background: #1b2331;
+    }
 
-      input[type="file"]::file-selector-button {
-        background: #1b2331;
-        color: #cbd5e1;
-      }
+    :root[data-theme="dark"] input[type="file"]::file-selector-button {
+      background: #1b2331;
+      color: #cbd5e1;
+    }
 
-      input[type="file"]::file-selector-button:hover {
-        background: #212b3d;
-      }
+    :root[data-theme="dark"] input[type="file"]::file-selector-button:hover {
+      background: #212b3d;
+    }
 
-      .kbd {
-        background: #1b2331;
-        color: #cbd5e1;
-      }
+    :root[data-theme="dark"] .kbd {
+      background: #1b2331;
+      color: #cbd5e1;
+    }
 
-      #logBox {
-        border-color: #1e293b;
-      }
+    :root[data-theme="dark"] #logBox {
+      border-color: #1e293b;
     }
 
     /* ---------- 第三版: 双列对齐布局 + 控件等高 ---------- */
@@ -1081,6 +1105,11 @@
     </span>
     <span class="sp"></span>
     <span class="cnt">§2 BLE 接口 · §3 命令协议 · §4 加密方案</span>
+    <select id="themeSel" title="切换主题（亮色 / 暗色 / 跟随系统）">
+      <option value="auto">跟随系统</option>
+      <option value="light">亮色</option>
+      <option value="dark">暗色</option>
+    </select>
   </header>
 
   <div id="envWarn" class="envwarn" hidden></div>
@@ -1221,14 +1250,29 @@
             <input id="inPassword" size="34" value="00112233445566778899AABBCCDDEEFF" spellcheck="false" />
           </label>
         </div>
+        <div class="cmds">
+          <label>
+            业务口令 (≥6字符 → AES 密钥)
+            <input id="inPass" size="26" placeholder="派生二维码加密密钥" spellcheck="false" />
+          </label>
+          <button id="btnDerive" class="sec" title="分别由业务口令/管理口令 md5 派生密钥与认证密码">
+            由口令派生
+          </button>
+        </div>
+        <div class="cmds">
+          <label>
+            管理口令 (≥6字符 → 认证密码)
+            <input id="inAdminPass" size="26" placeholder="派生 BLE 会话认证密码, 建议与业务口令不同" spellcheck="false" />
+          </label>
+        </div>
         <div class="note">
           出厂默认密钥/密码均为 00112233445566778899AABBCCDDEEFF。所有写操作前需 !AUTH
-          会话认证（断开即失效，本页自动执行）。
+          会话认证（断开即失效，本页自动执行）。「业务口令」派生 AES 密钥（加密二维码）、「管理口令」派生认证密码（BLE 管理），二者建议不同。
         </div>
       </fieldset>
       <div class="cmds">
-        <button id="btnAesQuery">查询当前密钥 !AESKEY</button>
         <button id="btnDoAuth" class="go">会话认证 !AUTH</button>
+        <button id="btnAesQuery" title="认证后查询密钥指纹, 校验两端密钥一致 (不泄露密钥)">校验密钥指纹 !AESKEY</button>
         <label>
           新密钥
           <input id="inNewKey" size="34" spellcheck="false" placeholder="32hex 新密钥" />
@@ -1353,7 +1397,7 @@
       </div>
       <div class="imgrow">
         <div>
-          <div class="cap">原图 (等比居中白底预览)</div>
+          <div class="cap">原图 (等比底部对齐白底预览)</div>
           <canvas id="previewRaw" width="128" height="296"></canvas>
         </div>
         <div>
@@ -1847,6 +1891,60 @@
       return bytesToHex(ecbEncrypt(hexToBytes(keyHex), hexToBytes(ptHex)));
     }
 
+    /* ---------------- 密钥指纹 (与设备 app_qr_ble.c QR_STORAGE_BLIND 一致) ----------------
+     * 指纹 = AES-ECB(密钥, BLIND) 前 8 字节 (16 hex); 设备认证后回执 OK:AESKEY:F <16hex>
+     * 用于校验两端密钥一致且不泄露密钥明文
+     */
+    const BLIND_HEX = "5a3c9e1f27846bd2e10a4f7c932568b4";
+    function aesFingerprint(keyHex) {
+      return bytesToHex(ecbEncrypt(hexToBytes(keyHex), hexToBytes(BLIND_HEX))).slice(0, 16);
+    }
+
+    /* ---------------- MD5 (RFC 1321, 纯 JS, 用于口令 -> 32hex 密钥派生) ----------------
+     * WebCrypto 不支持 MD5, 故内联实现; 派生值 = md5(口令) = 16 字节 = 32 hex (恰为 AES-128 密钥长度)
+     */
+    function md5Hex(str) {
+      const data = utf8Encode(String(str));
+      const len = data.length;
+      const ml = len * 8; // 位长
+      const paddedLen = (((len + 8) >> 6) << 6) + 64; // 补齐到 64 字节的倍数
+      const buf = new Uint8Array(paddedLen);
+      buf.set(data);
+      buf[len] = 0x80;
+      const dv = new DataView(buf.buffer);
+      dv.setUint32(paddedLen - 8, ml >>> 0, true); // 位长低 32 位 (小端)
+      dv.setUint32(paddedLen - 4, Math.floor(ml / 0x100000000) >>> 0, true);
+      let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+      const K = new Uint32Array(64);
+      for (let i = 0; i < 64; i++)
+        K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 0x100000000) >>> 0;
+      const S = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+        5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+        4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+        6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+      ];
+      const M = new Uint32Array(16);
+      for (let off = 0; off < paddedLen; off += 64) {
+        for (let j = 0; j < 16; j++) M[j] = dv.getUint32(off + j * 4, true);
+        let A = a0, B = b0, C = c0, D = d0;
+        for (let i = 0; i < 64; i++) {
+          let F, g;
+          if (i < 16) { F = (B & C) | (~B & D); g = i; }
+          else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+          else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+          else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+          F = (F + A + K[i] + M[g]) >>> 0;
+          A = D; D = C; C = B;
+          B = (B + ((F << S[i]) | (F >>> (32 - S[i])))) >>> 0;
+        }
+        a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0;
+        c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+      }
+      const le = (n) => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+      return bytesToHex(Uint8Array.from([...le(a0), ...le(b0), ...le(c0), ...le(d0)]));
+    }
+
     /* ---------------- 模式 A: URL 明文 + 时间加密 (AES-128-ECB) ----------------
      * 时间明文 16B: [0]年BCD [1]月 [2]日 [3]时 [4]分 [5]秒 [6]星期(0=周日)
      *               [7]nonce [8]='Q' [9]='R' [10]=0x01 [11..15]=0
@@ -1880,15 +1978,15 @@
       if (m) ctHex = m[1];
       ctHex = ctHex.replace(/\s+/g, "").toLowerCase();
       if (!/^[0-9a-f]{32}$/.test(ctHex))
-        return {ok: false, error: "未找到 32 位 hex 密文 (t= 参数)"};
+        return { ok: false, error: "未找到 32 位 hex 密文 (t= 参数)" };
       let pt;
       try {
         pt = ecbDecrypt(hexToBytes(keyHex), hexToBytes(ctHex));
       } catch (e) {
-        return {ok: false, error: e.message};
+        return { ok: false, error: e.message };
       }
       if (pt[8] !== 0x51 || pt[9] !== 0x52 || pt[10] !== 0x01)
-        return {ok: false, error: "魔数校验失败（密钥错误或非模式A密文）"};
+        return { ok: false, error: "魔数校验失败（密钥错误或非模式A密文）" };
       const yy = bcdToNum(pt[0]),
         mo = bcdToNum(pt[1]),
         dd = bcdToNum(pt[2]),
@@ -1932,24 +2030,24 @@
         .trim()
         .replace(/\s+/g, "");
       if (!/^[0-9a-fA-F]+$/.test(s))
-        return {ok: false, error: "输入需为纯 hex 字符串"};
+        return { ok: false, error: "输入需为纯 hex 字符串" };
       if (s.length % 32 !== 0)
-        return {ok: false, error: "hex 长度需为 16 字节的倍数"};
+        return { ok: false, error: "hex 长度需为 16 字节的倍数" };
       let frame;
       try {
         frame = cbcDecrypt(hexToBytes(keyHex), hexToBytes(IV_B_HEX), hexToBytes(s));
       } catch (e) {
-        return {ok: false, error: e.message};
+        return { ok: false, error: e.message };
       }
       const len = frame[0];
       if (len < 1 || len > frame.length - 1)
-        return {ok: false, error: `长度字段异常 (${len})，可能密钥错误`};
+        return { ok: false, error: `长度字段异常 (${len})，可能密钥错误` };
       const payload = utf8Decode(frame.subarray(1, 1 + len));
       const m = payload.match(/(?:^|[?&]t=)(\d{12})$/);
       let time = null;
       if (m)
         time = `20${m[1].slice(0, 2)}-${m[1].slice(2, 4)}-${m[1].slice(4, 6)} ${m[1].slice(6, 8)}:${m[1].slice(8, 10)}:${m[1].slice(10, 12)}`;
-      return {ok: true, payload, time};
+      return { ok: true, payload, time };
     }
 
     /* ---------------- RLE 压缩 (与设备 img_rle_feed 配套, 逐字节等价移植 Node 版) ----------------
@@ -2029,6 +2127,8 @@
       modeBDecode,
       rleEncode,
       rleDecode,
+      md5Hex,
+      aesFingerprint,
     };
     /*@@PURE_END@@*/
 
@@ -2144,7 +2244,7 @@
       if (BLE.pending.length) {
         const item = BLE.pending.shift();
         if (text.length >= 60) {
-          contItem = {acc: text};
+          contItem = { acc: text };
           setTimeout(() => {
             const acc = contItem ? contItem.acc : text; // 期间到达的续帧已累积进 contItem.acc
             contItem = null;
@@ -2160,7 +2260,7 @@
       try {
         setConnState("connecting");
         const device = await navigator.bluetooth.requestDevice({
-          filters: [{namePrefix: "QR-EINK"}],
+          filters: [{ namePrefix: "QR-EINK" }],
           optionalServices: [SVCF],
         });
         device.addEventListener("gattserverdisconnected", onDisconnected);
@@ -2249,23 +2349,25 @@
         await BLE.rx.writeValueWithResponse(u8);
       } // 回退 (设备两种写均支持)
     }
-    /* 会话认证: 查询当前密钥 -> ECB(当前密钥, 密码) -> !AUTH <ct> (移植 Node ensureAuth) */
+    /* 本地密钥/密码读取 (用户提供, 不再从设备查询密钥) */
+    function getKeyHex() {
+      return String($("#inKey").value || "")
+        .toLowerCase()
+        .replace(/[^0-9a-f]/g, "");
+    }
+    function getPassHex() {
+      return String($("#inPassword").value || "")
+        .toLowerCase()
+        .replace(/[^0-9a-f]/g, "");
+    }
+    /* 会话认证: ECB(本地密钥, 认证密码) -> !AUTH <ct> (移植 Node ensureAuth, 不再查询 !AESKEY) */
     async function ensureAuth() {
       if (BLE.authDone) return true;
       if (!BLE.rx) throw new Error("设备未连接");
-      const p1 = waitReply(3000);
-      await sendRaw(utf8Encode("!AESKEY"));
-      const r1 = await p1;
-      if (!r1 || !r1.toUpperCase().startsWith("OK:AESKEY ")) {
-        log("INFO", "无法获取当前密钥 (" + (r1 || "无回执") + ")，跳过认证");
-        return false;
-      }
-      const curKey = r1.substring("OK:AESKEY ".length).trim().toLowerCase();
-      const pass = String($("#inPassword").value || "")
-        .toLowerCase()
-        .replace(/[^0-9a-f]/g, "");
-      if (pass.length !== 32) {
-        log("ERR", "认证密码必须是 32 位 hex");
+      const curKey = getKeyHex();
+      const pass = getPassHex();
+      if (curKey.length !== 32 || pass.length !== 32) {
+        log("ERR", "密钥/密码格式错误 (需各 32 位 hex)，请在面板②填写或由口令派生");
         return false;
       }
       const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(pass)));
@@ -2286,6 +2388,33 @@
       );
       return false;
     }
+    /* 认证后查询密钥指纹, 校验两端密钥一致 (不泄露密钥, 移植 Node verifyFingerprint) */
+    async function verifyFingerprint() {
+      if (!BLE.rx) throw new Error("设备未连接");
+      await ensureAuth();
+      if (!BLE.authDone) {
+        log("INFO", "未认证, 无法查询密钥指纹 (设备要求认证后查询)");
+        return false;
+      }
+      const p = waitReply(3000);
+      await sendRaw(utf8Encode("!AESKEY"));
+      const r = await p;
+      const curKey = getKeyHex();
+      const expect = curKey.length === 32 ? aesFingerprint(curKey) : "?";
+      if (r && r.toUpperCase().startsWith("OK:AESKEY:F ")) {
+        const got = r.substring("OK:AESKEY:F ".length).trim().toLowerCase();
+        const ok = expect === got;
+        count("密钥指纹校验", ok, `${expect} vs ${got}${ok ? " (一致)" : " (不一致!)"}`);
+        if (!ok) log("WARN", "本地密钥与设备不一致：请检查面板② AES 密钥是否为设备当前密钥");
+        return ok;
+      } else if (r && r.toUpperCase() === "ERR:AUTH") {
+        log("INFO", "指纹查询被拒 (ERR:AUTH)，请先完成会话认证");
+        return false;
+      } else {
+        log("WARN", "指纹查询回执异常: " + (r || "(无回执)"));
+        return false;
+      }
+    }
     function matchReply(reply, expect) {
       if (reply === null) return false;
       if (expect === null || expect === undefined) return true;
@@ -2303,7 +2432,7 @@
       } = opts || {};
       if (!BLE.rx) {
         log("ERR", "请先连接设备（顶栏点击「连接设备」）");
-        return {reply: null, ok: false};
+        return { reply: null, ok: false };
       }
       if (auth === "auto" && !isReadOnly(cmd)) await ensureAuth();
       const p = waitReply(timeout);
@@ -2322,7 +2451,7 @@
       const ok = matchReply(reply, expect);
       count(cmd, ok, reply);
       if (delayAfter) await sleep(delayAfter);
-      return {reply, ok};
+      return { reply, ok };
     }
     function parseAlarmStat(s) {
       // A=1 AH=14 AM=30 P=0 PM=00 M=1 K=1 T=24 -> 中文
@@ -2356,7 +2485,7 @@
      * M5 图片管线 (Canvas 替代 jimp, 第 5.2 节)
      * ========================================================================= */
     async function imageToEpd(bmp, threshold) {
-      // 等比居中(白底) -> 灰度 -> 二值化 -> 1bpp
+      // 等比底部对齐(白底) -> 灰度 -> 二值化 -> 1bpp
       const c = document.createElement("canvas");
       c.width = EPD_W;
       c.height = EPD_H;
@@ -2369,7 +2498,7 @@
       ctx.drawImage(
         bmp,
         Math.floor((EPD_W - nw) / 2),
-        Math.floor((EPD_H - nh) / 2),
+        EPD_H - nh,
         nw,
         nh
       );
@@ -2400,7 +2529,7 @@
       }
     }
     function drawRawPreview(bmp, canvas) {
-      // 原图等比居中预览
+      // 原图等比底部对齐预览
       canvas.width = EPD_W;
       canvas.height = EPD_H;
       const ctx = canvas.getContext("2d");
@@ -2412,37 +2541,37 @@
       ctx.drawImage(
         bmp,
         Math.floor((EPD_W - nw) / 2),
-        Math.floor((EPD_H - nh) / 2),
+        EPD_H - nh,
         nw,
         nh
       );
     }
     function makeTestImage() {
-      // 确定性内置测试图: 白底黑框+对角条纹+中央棋盘格
+      // 确定性内置测试图: 白底两行文字, 逆时针旋转 90° (大号 "QR-EINK" + 小号 "2.9inch")
       const c = document.createElement("canvas");
-      c.width = 300;
-      c.height = 400;
+      c.width = 320;
+      c.height = 620;
       const x = c.getContext("2d");
       x.fillStyle = "#fff";
-      x.fillRect(0, 0, 300, 400);
+      x.fillRect(0, 0, 320, 620);
       x.fillStyle = "#000";
-      x.fillRect(0, 0, 300, 2);
-      x.fillRect(0, 398, 300, 2);
-      x.fillRect(0, 0, 2, 400);
-      x.fillRect(298, 0, 2, 400);
-      x.lineWidth = 8;
-      x.beginPath();
-      x.moveTo(0, 0);
-      x.lineTo(300, 400);
-      x.stroke();
-      x.beginPath();
-      x.moveTo(300, 0);
-      x.lineTo(0, 400);
-      x.stroke();
-      for (let gy = 0; gy < 12; gy++)
-        for (let gx = 0; gx < 12; gx++)
-          if ((gx + gy) % 2 === 0)
-            x.fillRect(150 - 24 + gx * 4, 200 - 24 + gy * 4, 4, 4);
+      x.textAlign = "center";
+      x.textBaseline = "middle";
+
+      x.save();
+      x.translate(115, 380);
+      x.rotate(-Math.PI / 2); // 逆时针 90°
+      x.font = "bold 86px 'Segoe UI', 'Microsoft YaHei', sans-serif";
+      x.fillText("QR-EINK", 0, 0);
+      x.restore();
+
+      x.save();
+      x.translate(225, 380);
+      x.rotate(-Math.PI / 2);
+      x.font = "bold 76px 'Segoe UI', 'Microsoft YaHei', sans-serif";
+      x.fillText("2.9inch", 0, 0);
+      x.restore();
+
       return c;
     }
     let imgBitmap = null,
@@ -2562,12 +2691,12 @@
       d.setMinutes(d.getMinutes() + 1);
       const alarmMin = pad(d.getHours()) + pad(d.getMinutes());
       return [
-        {name: "会话认证", cmd: "__AUTH__", delay: 500},
-        {name: "同步 RTC 时间", cmd: sync, delay: 2500, expect: "OK:SYNC"},
-        {name: "明文时间二维码", cmd: "!TIME", delay: 2500, expect: "OK:TIME"},
-        {name: "加密时间二维码", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
-        {name: "文本二维码", cmd: "HELLO 123", delay: 2500},
-        {name: "重显上一帧", cmd: "!R", delay: 2500, expect: /OK:R/},
+        { name: "会话认证", cmd: "__AUTH__", delay: 500 },
+        { name: "同步 RTC 时间", cmd: sync, delay: 2500, expect: "OK:SYNC" },
+        { name: "明文时间二维码", cmd: "!TIME", delay: 2500, expect: "OK:TIME" },
+        { name: "加密时间二维码", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "文本二维码", cmd: "HELLO 123", delay: 2500 },
+        { name: "重显上一帧", cmd: "!R", delay: 2500, expect: /OK:R/ },
         {
           name: "保存业务文本(URL)",
           cmd: "!TEXT http://www.baidu.com",
@@ -2580,16 +2709,16 @@
           delay: 2500,
           expect: "OK:ETIME",
         },
-        {name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT"},
+        { name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT" },
         {
           name: "文本带参再保存(&t=)",
           cmd: "!TEXT http://x.com/api?ver=1",
           delay: 2000,
           expect: "OK:TEXT",
         },
-        {name: "组合刷新(检测&分隔)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
-        {name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT"},
-        {name: "查询AES密钥(当前)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/},
+        { name: "组合刷新(检测&分隔)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "清空业务文本", cmd: "!TEXT", delay: 1500, expect: "OK:TEXT" },
+        { name: "查询AES密钥(当前)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
         {
           name: "错误密钥加密(应拒绝)",
           cmd:
@@ -2607,30 +2736,30 @@
           delay: 1500,
           expect: "OK:AESKEY",
         },
-        {name: "查询AES密钥(新)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/},
+        { name: "查询AES密钥(新)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
         {
           name: "恢复默认密钥(加密)",
           cmd: "!AESKEY " + ecbHex("112233445566778899AABBCCDDEEFF00", DEFAULT_KEY_HEX),
           delay: 1500,
           expect: "OK:AESKEY",
         },
-        {name: "查询加密模式(当前)", cmd: "!MODE", delay: 1000, expect: /OK:MODE/},
+        { name: "查询加密模式(当前)", cmd: "!MODE", delay: 1000, expect: /OK:MODE/ },
         {
           name: "切到模式1(整体加密)",
           cmd: "!MODE 1",
           delay: 1000,
           expect: "OK:MODE 1",
         },
-        {name: "全加密二维码(模式B)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
-        {name: "查询加密模式(应为1)", cmd: "!MODE", delay: 1000, expect: "OK:MODE 1"},
+        { name: "全加密二维码(模式B)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "查询加密模式(应为1)", cmd: "!MODE", delay: 1000, expect: "OK:MODE 1" },
         {
           name: "切回模式0(仅时间加密)",
           cmd: "!MODE 0",
           delay: 1000,
           expect: "OK:MODE 0",
         },
-        {name: "模式A二维码(恢复)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME"},
-        {name: "报警状态诊断", cmd: "!ALARMSTAT", delay: 1200, expect: /^A=/},
+        { name: "模式A二维码(恢复)", cmd: "!ETIME", delay: 2500, expect: "OK:ETIME" },
+        { name: "报警状态诊断", cmd: "!ALARMSTAT", delay: 1200, expect: /^A=/ },
         {
           name: "设单点报警(下一分钟)",
           cmd: "!ALARM " + alarmMin,
@@ -2649,15 +2778,15 @@
           delay: 3500,
           expect: "OK:PERIOD",
         },
-        {name: "关闭周期", cmd: "!PERIOD 0", delay: 1500, expect: "OK:PERIOD"},
-        {name: "关闭报警", cmd: "!ALARM OFF", delay: 1500, expect: "OK:ALARM"},
-        {name: "LED 查询", cmd: "!LED", delay: 1200, expect: /^LED:/},
-        {name: "LED 亮", cmd: "!LED 1", delay: 1200, expect: "OK:LED"},
-        {name: "LED 灭", cmd: "!LED 0", delay: 1200, expect: "OK:LED"},
-        {name: "LED 闪烁3次", cmd: "!LED 3", delay: 2500, expect: "OK:LED"},
-        {name: "电池电量查询", cmd: "!BATT", delay: 1200, expect: /^BATT:/},
-        {name: "MAC 地址查询", cmd: "!MAC", delay: 1200, expect: /^MAC:/},
-        {name: "清屏", cmd: "!CLR", delay: 2500, expect: "OK:CLR"},
+        { name: "关闭周期", cmd: "!PERIOD 0", delay: 1500, expect: "OK:PERIOD" },
+        { name: "关闭报警", cmd: "!ALARM OFF", delay: 1500, expect: "OK:ALARM" },
+        { name: "LED 查询", cmd: "!LED", delay: 1200, expect: /^LED:/ },
+        { name: "LED 亮", cmd: "!LED 1", delay: 1200, expect: "OK:LED" },
+        { name: "LED 灭", cmd: "!LED 0", delay: 1200, expect: "OK:LED" },
+        { name: "LED 闪烁3次", cmd: "!LED 3", delay: 2500, expect: "OK:LED" },
+        { name: "电池电量查询", cmd: "!BATT", delay: 1200, expect: /^BATT:/ },
+        { name: "MAC 地址查询", cmd: "!MAC", delay: 1200, expect: /^MAC:/ },
+        { name: "清屏", cmd: "!CLR", delay: 2500, expect: "OK:CLR" },
       ];
     }
     async function runAuto() {
@@ -2883,7 +3012,7 @@
       );
     }
     /* ---- 面板 2: 密钥/认证 ---- */
-    bindCmd("#btnAesQuery", () => sendCmd("!AESKEY", {expect: /OK:AESKEY/}));
+    bindCmd("#btnAesQuery", () => verifyFingerprint());
     bindCmd("#btnDoAuth", async () => {
       count("会话认证", await ensureAuth(), BLE.authDone ? "OK:AUTH" : "");
     });
@@ -2895,18 +3024,20 @@
         log("ERR", "新密钥必须是 32 位 hex");
         return;
       }
-      await ensureAuth();
-      const p = waitReply(3000);
-      await sendRaw(utf8Encode("!AESKEY"));
-      const r = await p;
-      if (!r || !r.toUpperCase().startsWith("OK:AESKEY ")) {
-        log("ERR", "无法获取当前密钥: " + (r || "无回执"));
+      const curKey = getKeyHex();
+      if (curKey.length !== 32) {
+        log("ERR", "当前密钥 (面板② AES 密钥) 必须是 32 位 hex");
         return;
       }
-      const curKey = r.substring("OK:AESKEY ".length).trim().toLowerCase();
+      await ensureAuth();
       const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newKey)));
       log("INFO", "更新密文: " + ct);
-      await sendCmd("!AESKEY " + ct, {expect: "OK:AESKEY"});
+      const r = await sendCmd("!AESKEY " + ct, { expect: "OK:AESKEY" });
+      if (r.ok) {
+        $("#inKey").value = newKey; // 更新成功后本地密钥同步为新密钥
+        $("#inKey").dispatchEvent(new Event("change"));
+        log("INFO", "已同步本地 AES 密钥为新密钥");
+      }
     });
     bindCmd("#btnAuthPass", async () => {
       const newPass = String($("#inNewPass").value || "")
@@ -2921,27 +3052,45 @@
         log("ERR", "请先完成会话认证再更新密码");
         return;
       }
-      const p = waitReply(3000);
-      await sendRaw(utf8Encode("!AESKEY"));
-      const r = await p;
-      if (!r || !r.toUpperCase().startsWith("OK:AESKEY ")) {
-        log("ERR", "无法获取当前密钥");
-        return;
-      }
-      const curKey = r.substring("OK:AESKEY ".length).trim().toLowerCase();
+      const curKey = getKeyHex();
       const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newPass)));
       log("INFO", "新密码密文: " + ct);
-      await sendCmd("!AUTHPASS " + ct, {expect: "OK:AUTHPASS"});
+      const r = await sendCmd("!AUTHPASS " + ct, { expect: "OK:AUTHPASS" });
+      if (r.ok) {
+        $("#inPassword").value = newPass;
+        $("#inPassword").dispatchEvent(new Event("change"));
+        log("INFO", "已同步本地认证密码为新密码");
+      }
+    });
+    bindCmd("#btnDerive", () => {
+      const pass = String($("#inPass").value || "");
+      const admin = String($("#inAdminPass").value || "");
+      if (pass.length < 6 && admin.length < 6) {
+        log("ERR", "至少填写一个口令（业务口令/管理口令，均需 ≥6 字符）");
+        return;
+      }
+      if (pass.length >= 6) {
+        const key = md5Hex(pass);
+        $("#inNewKey").value = key;
+        $("#inNewKey").dispatchEvent(new Event("change"));
+        log("INFO", `已由业务口令派生 AES 密钥并填入「新密钥」: ${key}`);
+      }
+      if (admin.length >= 6) {
+        const pw = md5Hex(admin);
+        $("#inNewPass").value = pw;
+        $("#inNewPass").dispatchEvent(new Event("change"));
+        log("INFO", `已由管理口令派生认证密码并填入「新认证密码」: ${pw}`);
+      }
     });
     /* ---- 面板 3: 命令 ---- */
     bindCmd("#btnSync", () =>
-      sendCmd("!SYNC " + nowYMDHMS(), {delayAfter: 2500, expect: "OK:SYNC"})
+      sendCmd("!SYNC " + nowYMDHMS(), { delayAfter: 2500, expect: "OK:SYNC" })
     );
     bindCmd("#btnTime", () =>
-      sendCmd("!TIME", {delayAfter: 2500, expect: "OK:TIME"})
+      sendCmd("!TIME", { delayAfter: 2500, expect: "OK:TIME" })
     );
     bindCmd("#btnEtime", () =>
-      sendCmd("!ETIME", {delayAfter: 2500, expect: "OK:ETIME"})
+      sendCmd("!ETIME", { delayAfter: 2500, expect: "OK:ETIME" })
     );
     bindCmd("#btnTextQR", () => {
       const v = $("#inText").value.trim();
@@ -2949,7 +3098,7 @@
         log("ERR", "请输入文本内容");
         return;
       }
-      return sendCmd(v, {delayAfter: 2500});
+      return sendCmd(v, { delayAfter: 2500 });
     });
     bindCmd("#btnTextSave", () =>
       sendCmd("!TEXT " + $("#inText").value.trim(), {
@@ -2958,27 +3107,27 @@
       })
     );
     bindCmd("#btnTextClear", () =>
-      sendCmd("!TEXT", {delayAfter: 1500, expect: "OK:TEXT"})
+      sendCmd("!TEXT", { delayAfter: 1500, expect: "OK:TEXT" })
     );
-    bindCmd("#btnRedisplay", () => sendCmd("!R", {delayAfter: 2500, expect: /OK:R/}));
-    bindCmd("#btnClr", () => sendCmd("!CLR", {delayAfter: 2500, expect: "OK:CLR"}));
-    bindCmd("#btnSlp", () => sendCmd("!SLP", {delayAfter: 1000, expect: "OK:SLP"}));
-    bindCmd("#btnModeQ", () => sendCmd("!MODE", {expect: /OK:MODE/}));
-    bindCmd("#btnMode0", () => sendCmd("!MODE 0", {expect: "OK:MODE 0"}));
-    bindCmd("#btnMode1", () => sendCmd("!MODE 1", {expect: "OK:MODE 1"}));
+    bindCmd("#btnRedisplay", () => sendCmd("!R", { delayAfter: 2500, expect: /OK:R/ }));
+    bindCmd("#btnClr", () => sendCmd("!CLR", { delayAfter: 2500, expect: "OK:CLR" }));
+    bindCmd("#btnSlp", () => sendCmd("!SLP", { delayAfter: 1000, expect: "OK:SLP" }));
+    bindCmd("#btnModeQ", () => sendCmd("!MODE", { expect: /OK:MODE/ }));
+    bindCmd("#btnMode0", () => sendCmd("!MODE 0", { expect: "OK:MODE 0" }));
+    bindCmd("#btnMode1", () => sendCmd("!MODE 1", { expect: "OK:MODE 1" }));
     bindCmd("#btnAlarm", () => {
       const v = $("#inAlarm").value.trim().toUpperCase();
       if (!v) {
         log("ERR", "请输入 mm / hhmm / OFF");
         return;
       }
-      return sendCmd("!ALARM " + v, {expect: /OK:ALARM|ERR:ALARM/});
+      return sendCmd("!ALARM " + v, { expect: /OK:ALARM|ERR:ALARM/ });
     });
     bindCmd("#btnAlarmTest", () =>
-      sendCmd("!ALARMTEST", {delayAfter: 3500, expect: "OK:TEST"})
+      sendCmd("!ALARMTEST", { delayAfter: 3500, expect: "OK:TEST" })
     );
     bindCmd("#btnAlarmStat", async () => {
-      const r = await sendCmd("!ALARMSTAT", {expect: /^A=/});
+      const r = await sendCmd("!ALARMSTAT", { expect: /^A=/ });
       if (r.reply && /^A=/.test(r.reply))
         log("INFO", "状态: " + parseAlarmStat(r.reply));
     });
@@ -2988,21 +3137,21 @@
         log("ERR", "请输入 1-255 / 0 / OFF");
         return;
       }
-      return sendCmd("!PERIOD " + v, {expect: /OK:PERIOD|ERR:PERIOD/});
+      return sendCmd("!PERIOD " + v, { expect: /OK:PERIOD|ERR:PERIOD/ });
     });
-    bindCmd("#btnLedQ", () => sendCmd("!LED", {expect: /^LED:/}));
-    bindCmd("#btnLedOn", () => sendCmd("!LED 1", {expect: "OK:LED"}));
-    bindCmd("#btnLedOff", () => sendCmd("!LED 0", {expect: "OK:LED"}));
+    bindCmd("#btnLedQ", () => sendCmd("!LED", { expect: /^LED:/ }));
+    bindCmd("#btnLedOn", () => sendCmd("!LED 1", { expect: "OK:LED" }));
+    bindCmd("#btnLedOff", () => sendCmd("!LED 0", { expect: "OK:LED" }));
     bindCmd("#btnLedBlink", () => {
       const n = parseInt($("#inLedN").value, 10);
       if (isNaN(n) || n < 2 || n > 20) {
         log("ERR", "闪烁次数需为 2~20");
         return;
       }
-      return sendCmd("!LED " + n, {delayAfter: 2000, expect: "OK:LED"});
+      return sendCmd("!LED " + n, { delayAfter: 2000, expect: "OK:LED" });
     });
-    bindCmd("#btnBatt", () => sendCmd("!BATT", {expect: /^BATT:/}));
-    bindCmd("#btnMacQ", () => sendCmd("!MAC", {expect: /^MAC:/}));
+    bindCmd("#btnBatt", () => sendCmd("!BATT", { expect: /^BATT:/ }));
+    bindCmd("#btnMacQ", () => sendCmd("!MAC", { expect: /^MAC:/ }));
     bindCmd("#btnMacSet", () => {
       const v = $("#inMac").value.replace(/[:\-\s]/g, "");
       if (!/^[0-9A-Fa-f]{12}$/.test(v)) {
@@ -3014,7 +3163,7 @@
       )
         return;
       const formatted = v.match(/.{2}/g).join(":").toUpperCase();
-      return sendCmd("!MAC " + formatted, {expect: "OK:MAC"}).then((r) => {
+      return sendCmd("!MAC " + formatted, { expect: "OK:MAC" }).then((r) => {
         if (r.ok) log("INFO", "MAC 已写入 Flash，需重启生效（!RBT 或断电）");
       });
     });
@@ -3046,7 +3195,7 @@
         log("ERR", "请输入命令");
         return;
       }
-      return sendCmd(v, {timeout: 5000, delayAfter: 1500});
+      return sendCmd(v, { timeout: 5000, delayAfter: 1500 });
     });
     /* ---- 面板 4: 图片 ---- */
     $("#inFile").addEventListener("change", async () => {
@@ -3066,7 +3215,7 @@
         drawRawPreview(imgBitmap, $("#previewRaw"));
         await refreshEpdFromBitmap();
         updateImgUi();
-        log("INFO", "已生成内置测试图（白底黑框+对角条纹+中央棋盘格）");
+        log("INFO", "已生成内置测试图（QR-EINK / 2.9inch 文字, 逆时针90°）");
       } catch (e) {
         log("ERR", e.message);
       }
@@ -3221,6 +3370,33 @@
       el.value = lsGet(k, el.value);
       el.addEventListener("change", () => lsSet(k, el.value));
     });
+
+    /* ---- 主题切换 (亮色 / 暗色 / 跟随系统) ---- */
+    function applyTheme(mode) {
+      const dark =
+        mode === "dark" ||
+        (mode === "auto" &&
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      const sel = $("#themeSel");
+      if (sel && sel.value !== mode) sel.value = mode;
+    }
+    $("#themeSel").addEventListener("change", () => {
+      const mode = $("#themeSel").value;
+      lsSet("theme", mode);
+      applyTheme(mode);
+      log("INFO", "主题已切换: " + (mode === "auto" ? "跟随系统" : mode === "dark" ? "暗色" : "亮色"));
+    });
+    if (
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener
+    ) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if (lsGet("theme", "auto") === "auto") applyTheme("auto");
+      });
+    }
+    applyTheme(lsGet("theme", "auto"));
 
     /* ---- 启动 ---- */
     (function boot() {

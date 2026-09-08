@@ -97,7 +97,7 @@
 | `!ALARMSTAT`             | 查询配置状态（见下）                                                           | 状态报告                                          |
 | `!PERIOD N`              | 周期刷新：每 N 分钟（1-255）                                                   | `OK:PERIOD` / `ERR:PERIOD`                        |
 | `!PERIOD 0` / `OFF`      | 关闭周期刷新                                                                   | `OK:PERIOD`                                       |
-| `!AESKEY`                | 查询当前密钥                                                                   | `OK:AESKEY <32hex>`                               |
+| `!AESKEY`                | 查询密钥指纹（**需认证**，不泄露密钥）                                         | `OK:AESKEY:F <16hex指纹>` / `ERR:AUTH`            |
 | `!AESKEY <32hex密文>`    | **加密更新**：密文 = AES-128-ECB(当前密钥, 新密钥)，旧/新密钥均不明文传输      | `OK:AESKEY` / `ERR:AESKEY` / `ERR:AESKEY:DECRYPT` |
 | `!AUTH <32hex密文>`      | **会话认证**：密文 = AES-128-ECB(当前密钥, 认证密码)，认证成功后才能执行写操作 | `OK:AUTH` / `ERR:AUTH`                            |
 | `!AUTHPASS <32hex密文>`  | **更新认证密码**（需先认证）：密文 = AES-128-ECB(当前密钥, 新密码)             | `OK:AUTHPASS` / `ERR:AUTHPASS`                    |
@@ -199,14 +199,15 @@ PC端:  密文 = AES-128-ECB(当前AES密钥, 认证密码)  →  发送 !AUTH <
 ```
 
 - 认证密码 16 字节（32hex），独立于 AES 加密密钥，持久化到 Flash
+- **建议与 AES 加密密钥使用不同值**：密钥需共享给二维码解码/校验端（属半公开），认证密码应仅管理员掌握；两者若相同，拿到密钥即可通过认证篡改设备
 - 默认密码 = `00112233445566778899AABBCCDDEEFF`（占位，生产必须更换）
 - 认证状态在 **断开连接后自动清除**，下次连接需重新认证
 - 密码不明文传输，抓包只能看到密文
 - 通过 `!AUTHPASS <密文>` 可在线更换认证密码（需先认证）
 
-**无需认证的读操作**：`!TIME` / `!ETIME` / `!R` / `!BATT` / `!ALARMSTAT` / `!AESKEY`(查询) / `!MODE`(查询) / `!LED`(查询) / `!MAC`(查询)
+**无需认证的读操作**：`!TIME` / `!ETIME` / `!R` / `!BATT` / `!ALARMSTAT` / `!MODE`(查询) / `!LED`(查询) / `!MAC`(查询)
 
-**必须认证的写操作**：`!TEXT` / `!SYNC` / `!AESKEY`(更新) / `!MODE`(设置) / `!ALARM` / `!PERIOD` / `!IMG` / `!LED`(设置) / `!MAC`(设置) / `!RBT` / `!CLR` / `!AUTHPASS`
+**必须认证的写操作**：`!TEXT` / `!SYNC` / `!AESKEY`(查询+更新) / `!MODE`(设置) / `!ALARM` / `!PERIOD` / `!IMG` / `!LED`(设置) / `!MAC`(设置) / `!RBT` / `!CLR` / `!AUTHPASS`
 
 ### 4.3 模式 A（默认）：URL 明文 + 时间加密
 
