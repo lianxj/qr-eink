@@ -331,6 +331,13 @@
       margin: 6px 0;
     }
 
+    .window-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
     label {
       display: inline-flex;
       align-items: center;
@@ -1192,6 +1199,11 @@
             <td>OK:PERIOD / ERR:PERIOD</td>
           </tr>
           <tr>
+            <td>!WINDOW HHMM-HHMM|OFF</td>
+            <td>刷新窗口(仅窗口内到点才刷新, 支持跨天)</td>
+            <td>OK:WINDOW / ERR:WINDOW</td>
+          </tr>
+          <tr>
             <td>!AESKEY [&lt;32hex密文&gt;]</td>
             <td>查询 / 加密更新密钥</td>
             <td>OK:AESKEY &lt;32hex&gt;</td>
@@ -1338,6 +1350,12 @@
             <button id="btnAlarmStat" title="!ALARMSTAT">查询状态 !ALARMSTAT</button>
             <input id="inPeriod" size="10" placeholder="1-255|0|OFF" />
             <button id="btnPeriod" title="!PERIOD N">周期刷新 !PERIOD</button>
+            <span class="window-group">
+              <input id="inWindow" size="12" placeholder="HHMM-HHMM" />
+              <button id="btnWindow" title="!WINDOW HHMM-HHMM">设窗口 !WINDOW</button>
+              <button id="btnWindowOff" title="!WINDOW OFF">关窗口</button>
+              <button id="btnWindowQ" title="!WINDOW (查询)">查窗口</button>
+            </span>
           </div>
         </fieldset>
         <fieldset class="g-led">
@@ -1900,6 +1918,13 @@
       return bytesToHex(ecbEncrypt(hexToBytes(keyHex), hexToBytes(BLIND_HEX))).slice(0, 16);
     }
 
+    /* 64hex 更新密文: AES-ECB(curKey, newValue(16B) || fp8(curKey)(8B) || 8B pad) = 32B
+     * 设备解密后校验指纹, 错密钥加密的更新会被拒绝 (ERR:AESKEY:FP / ERR:AUTHPASS:FP) */
+    function aesUpdateCipher(curKey, newValue) {
+      const pt = newValue + aesFingerprint(curKey) + "0000000000000000";
+      return bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(pt)));
+    }
+
     /* ---------------- MD5 (RFC 1321, 纯 JS, 用于口令 -> 32hex 密钥派生) ----------------
      * WebCrypto 不支持 MD5, 故内联实现; 派生值 = md5(口令) = 16 字节 = 32 hex (恰为 AES-128 密钥长度)
      */
@@ -2331,7 +2356,7 @@
       const head = parts[0];
       if (["!TIME", "!ETIME", "!R", "!REDISPLAY", "!BATT", "!ALARMSTAT"].includes(head))
         return true;
-      if (["!AESKEY", "!MODE", "!LED", "!MAC"].includes(head) && parts.length === 1)
+      if (["!AESKEY", "!MODE", "!LED", "!MAC", "!WINDOW"].includes(head) && parts.length === 1)
         return true;
       return false;
     }
@@ -2466,7 +2491,10 @@
         PM = g("PM"),
         M = g("M"),
         K = g("K"),
-        T = g("T");
+        T = g("T"),
+        W = g("W"),
+        WS = g("WS"),
+        WE = g("WE");
       if (A === null) return s;
       const parts = [];
       parts.push("报警=" + (A === "1" ? "开" : "关"));
@@ -2478,6 +2506,13 @@
       parts.push("模式=" + (M === "1" ? "B(整体加密)" : "A(时间加密)"));
       parts.push("密钥=" + (K === "1" ? "自定义" : "默认"));
       parts.push("文本长度=" + (T || "0"));
+      parts.push(
+        "窗口=" +
+          (W === "1"
+            ? "开(" + String(WS || "????").slice(0, 2) + ":" + String(WS || "????").slice(2, 4) +
+              "-" + String(WE || "????").slice(0, 2) + ":" + String(WE || "????").slice(2, 4) + ")"
+            : "关")
+      );
       return parts.join(" ");
     }
 
@@ -2721,27 +2756,47 @@
         { name: "查询AES密钥(当前)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
         {
           name: "错误密钥加密(应拒绝)",
+          /* 指纹门: 面板密钥与设备一致才执行; 设备端校验旧密钥指纹后真正会拒绝 */
+          before: async () => {
+            const ok = await verifyFingerprint();
+            if (!ok) log("WARN", "两端密钥不一致, 跳过错误密钥用例(避免污染)");
+            return ok;
+          },
           cmd:
             "!AESKEY " +
-            ecbHex(
+            aesUpdateCipher(
               "00000000000000000000000000000000",
               "112233445566778899AABBCCDDEEFF00"
             ),
           delay: 1200,
-          expect: /ERR/,
+          expect: /ERR:AESKEY:FP/,
         },
         {
           name: "加密更新AES密钥",
-          cmd: "!AESKEY " + ecbHex(DEFAULT_KEY_HEX, "112233445566778899AABBCCDDEEFF00"),
+          before: async () => verifyFingerprint(),
+          cmd:
+            "!AESKEY " +
+            aesUpdateCipher(getKeyHex(), "112233445566778899AABBCCDDEEFF00"),
           delay: 1500,
-          expect: "OK:AESKEY",
+          expect: /OK:AESKEY/,
+          after: () => {
+            $("#inKey").value = "112233445566778899AABBCCDDEEFF00";
+            $("#inKey").dispatchEvent(new Event("change"));
+          },
         },
         { name: "查询AES密钥(新)", cmd: "!AESKEY", delay: 1200, expect: /OK:AESKEY/ },
         {
           name: "恢复默认密钥(加密)",
-          cmd: "!AESKEY " + ecbHex("112233445566778899AABBCCDDEEFF00", DEFAULT_KEY_HEX),
+          before: async () => verifyFingerprint(),
+          cmd:
+            "!AESKEY " +
+            aesUpdateCipher("112233445566778899AABBCCDDEEFF00", DEFAULT_KEY_HEX),
           delay: 1500,
-          expect: "OK:AESKEY",
+          expect: /OK:AESKEY/,
+          after: () => {
+            $("#inKey").value = DEFAULT_KEY_HEX;
+            $("#inKey").dispatchEvent(new Event("change"));
+          },
         },
         { name: "查询加密模式(当前)", cmd: "!MODE", delay: 1000, expect: /OK:MODE/ },
         {
@@ -2780,6 +2835,10 @@
         },
         { name: "关闭周期", cmd: "!PERIOD 0", delay: 1500, expect: "OK:PERIOD" },
         { name: "关闭报警", cmd: "!ALARM OFF", delay: 1500, expect: "OK:ALARM" },
+        { name: "设置刷新窗口(0800-2200)", cmd: "!WINDOW 0800-2200", delay: 1500, expect: "OK:WINDOW" },
+        { name: "查询刷新窗口(应为1)", cmd: "!WINDOW", delay: 1200, expect: /OK:WINDOW 1/ },
+        { name: "关闭刷新窗口", cmd: "!WINDOW OFF", delay: 1500, expect: "OK:WINDOW" },
+        { name: "查询刷新窗口(应为0)", cmd: "!WINDOW", delay: 1200, expect: /OK:WINDOW 0/ },
         { name: "LED 查询", cmd: "!LED", delay: 1200, expect: /^LED:/ },
         { name: "LED 亮", cmd: "!LED 1", delay: 1200, expect: "OK:LED" },
         { name: "LED 灭", cmd: "!LED 0", delay: 1200, expect: "OK:LED" },
@@ -2813,11 +2872,20 @@
                 const ok = await ensureAuth();
                 count("会话认证", ok, ok ? "OK:AUTH" : "认证失败");
               } else {
+                /* 前置指纹门: 失配时跳过, 防止测试把设备密钥刷成垃圾 */
+                if (c.before) {
+                  const bg = await c.before();
+                  if (!bg) {
+                    count(c.name, false, "前置校验未通过, 已跳过");
+                    continue;
+                  }
+                }
                 const r = await sendCmd(c.cmd, {
                   auth: "auto",
                   timeout: 4000,
                   expect: c.expect,
                 });
+                if (c.after) await c.after();
                 if (r.reply && /^A=/.test(r.reply))
                   log("INFO", "状态: " + parseAlarmStat(r.reply));
               }
@@ -3030,9 +3098,15 @@
         return;
       }
       await ensureAuth();
-      const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newKey)));
-      log("INFO", "更新密文: " + ct);
-      const r = await sendCmd("!AESKEY " + ct, { expect: "OK:AESKEY" });
+      const ct = aesUpdateCipher(curKey, newKey);
+      log("INFO", "更新密文(64hex): " + ct);
+      const r = await sendCmd("!AESKEY " + ct, { expect: /OK:AESKEY/ });
+      if (r.reply && r.reply.startsWith("OK:AESKEY:F ")) {
+        const nfp = r.reply.substring("OK:AESKEY:F ".length).trim().toLowerCase();
+        const efp = aesFingerprint(newKey);
+        if (nfp === efp) log("INFO", "新密钥指纹核验一致: " + nfp);
+        else log("WARN", "新密钥指纹不符! 期望 " + efp + " 设备 " + nfp);
+      }
       if (r.ok) {
         $("#inKey").value = newKey; // 更新成功后本地密钥同步为新密钥
         $("#inKey").dispatchEvent(new Event("change"));
@@ -3053,8 +3127,8 @@
         return;
       }
       const curKey = getKeyHex();
-      const ct = bytesToHex(ecbEncrypt(hexToBytes(curKey), hexToBytes(newPass)));
-      log("INFO", "新密码密文: " + ct);
+      const ct = aesUpdateCipher(curKey, newPass);
+      log("INFO", "新密码密文(64hex): " + ct);
       const r = await sendCmd("!AUTHPASS " + ct, { expect: "OK:AUTHPASS" });
       if (r.ok) {
         $("#inPassword").value = newPass;
@@ -3139,6 +3213,20 @@
       }
       return sendCmd("!PERIOD " + v, { expect: /OK:PERIOD|ERR:PERIOD/ });
     });
+    bindCmd("#btnWindow", () => {
+      const v = $("#inWindow").value.trim().toUpperCase();
+      if (!/^\d{4}-\d{4}$/.test(v)) {
+        log("ERR", "格式: HHMM-HHMM（如 0800-1800，支持跨天）");
+        return;
+      }
+      return sendCmd("!WINDOW " + v, { expect: "OK:WINDOW" });
+    });
+    bindCmd("#btnWindowOff", () =>
+      sendCmd("!WINDOW OFF", { expect: "OK:WINDOW" })
+    );
+    bindCmd("#btnWindowQ", () =>
+      sendCmd("!WINDOW", { expect: /^OK:WINDOW/ })
+    );
     bindCmd("#btnLedQ", () => sendCmd("!LED", { expect: /^LED:/ }));
     bindCmd("#btnLedOn", () => sendCmd("!LED 1", { expect: "OK:LED" }));
     bindCmd("#btnLedOff", () => sendCmd("!LED 0", { expect: "OK:LED" }));
@@ -3368,7 +3456,16 @@
     ].forEach(([id, k]) => {
       const el = $(id);
       el.value = lsGet(k, el.value);
-      el.addEventListener("change", () => lsSet(k, el.value));
+      el.addEventListener("change", () => {
+        lsSet(k, el.value);
+        /* 密钥/认证密码改动 -> 旧会话认证立即失效, 下次写操作强制重新认证,
+         * 避免在两端密钥失配时被 authDone 缓存静默放行 */
+        if (id === "#inKey" || id === "#inPassword") {
+          BLE.authDone = false;
+          setAuthBadge(false);
+          log("WARN", "密钥或认证密码已改动，会话认证已重置（下次写操作将重新认证）");
+        }
+      });
     });
 
     /* ---- 主题切换 (亮色 / 暗色 / 跟随系统) ---- */
